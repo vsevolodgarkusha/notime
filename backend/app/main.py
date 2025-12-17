@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from datetime import datetime, timezone
 import logging
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware # Import CORSMiddleware
 
 from .tasks import send_notification
 
@@ -20,7 +21,22 @@ class Task(BaseModel):
     task: str
     params: TaskParams | None = None
 
+# New Pydantic model for a task item
+class TaskItem(BaseModel):
+    id: int
+    title: str
+    completed: bool
+
 app = FastAPI()
+
+# Add CORS middleware for frontend development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"], # Allows all methods
+    allow_headers=["*"], # Allows all headers
+)
 
 @app.post("/schedule")
 async def schedule_task(task: Task, chat_id: int):
@@ -46,6 +62,18 @@ async def schedule_task(task: Task, chat_id: int):
             return {"message": "Invalid datetime format."}
             
     return {"message": "Unknown or invalid task"}
+
+# New endpoint to get a list of tasks
+@app.get("/api/tasks", response_model=list[TaskItem])
+async def get_tasks():
+    # For now, return a hardcoded list of tasks
+    # In a real application, this would come from a database
+    tasks_list = [
+        {"id": 1, "title": "Buy groceries", "completed": False},
+        {"id": 2, "title": "Walk the dog", "completed": True},
+        {"id": 3, "title": "Finish report", "completed": False},
+    ]
+    return tasks_list
 
 if __name__ == "__main__":
     import uvicorn
