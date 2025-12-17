@@ -1,0 +1,16 @@
+# Git and Docker configuration
+.git/
+.gitignore
+.dockerignore
+docker-compose.yml
+
+# Project files
+README.md
+план
+
+# Environment files
+.env*
+
+# Python cache
+__pycache__/
+*.pyc
