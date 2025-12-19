@@ -130,7 +130,7 @@ const fetchTasks = async () => {
 
 const updateTaskStatus = async (id: number, status: string) => {
   try {
-    const response = await fetch(`${API_BASE}/tasks/${id}/status`, {
+    const response = await fetch(`${API_BASE}/tasks/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
