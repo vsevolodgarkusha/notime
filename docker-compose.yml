@@ -24,6 +24,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
 
   backend:
     build: ./backend
@@ -83,6 +84,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - BOT_TOKEN=${BOT_TOKEN}
+      - GROQ_API_KEY=${GROQ_API_KEY}
     depends_on:
       - llm-service
       - backend

@@ -30,9 +30,17 @@ def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: s
             task_data = response.json()
         
         if task_data.get("task") == "unknown":
-            edit_message(chat_id, message_id, "❌ Не удалось понять запрос. Попробуйте сформулировать иначе.")
+            reason = task_data.get("error_message", "Unknown reason")
+            logging.warning(f"LLM returned unknown task. Reason: {reason}")
+            edit_message(chat_id, message_id, f"❌ Не удалось понять запрос.\nПричина: {reason}")
             return
         
+        # Check for duplicates using message_id
+        existing_task = db.query(models.Task).filter(models.Task.message_id == message_id).first()
+        if existing_task:
+            logging.info(f"Task for message {message_id} already exists. Skipping.")
+            return
+
         user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
         if not user:
             user = models.User(telegram_id=telegram_id, timezone=timezone_str)

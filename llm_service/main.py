@@ -2,16 +2,17 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
-import google.generativeai as genai
+from groq import Groq
 import json
 
 load_dotenv()
 
-api_key = os.getenv("GOOGLE_API_KEY")
-if not api_key:
-    raise RuntimeError("GOOGLE_API_KEY environment variable is not set.")
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel('gemini-2.5-flash')
+if not os.getenv("GROQ_API_KEY"):
+    pass # Client will check or it might be set via env var automatically. But good to check.
+    # Actually Groq() checks it. 
+
+client = Groq()
+MODEL = "llama-3.3-70b-versatile"
 
 class ProcessRequest(BaseModel):
     text: str
@@ -25,73 +26,88 @@ class TaskParams(BaseModel):
 class TaskResponse(BaseModel):
     task: str  # "notify" or "unknown"
     params: TaskParams | None = None
+    error_message: str | None = None
 
 app = FastAPI()
 
-PROMPT_TEMPLATE = """
-Analyze the user's request to schedule a notification.
-Based on the user's text, their timezone, and the current time, determine the exact date and time for the notification.
+SYSTEM_PROMPT = """
+You are an intelligent assistant that analyzes user requests to schedule notifications.
+Your goal is to extract the intent, the desired time, and the notification text.
 
 **Instructions:**
-1.  The user's request is: "{user_text}"
-2.  The user's timezone is: "{user_timezone}" (This could be a name like "Europe/Moscow" or an offset like "-3").
-3.  The current time is: "{current_time_iso}" (in UTC).
-4.  Your primary task is to correctly interpret relative times like "tomorrow", "tonight", or "in 2 hours" from the user's perspective.
-5.  Calculate the final target time in UTC, formatted as an ISO 8601 string (YYYY-MM-DDTHH:MM:SS).
-6.  **IMPORTANT**: The "text" field should be a friendly, natural reminder message that will be sent to the user. Transform the user's request into a direct, actionable reminder. Examples:
+1.  Analyze the user's text, timezone, and current time.
+2.  Determine the target notification time in UTC, formatted as ISO 8601 (YYYY-MM-DDTHH:MM:SS).
+3.  Transform the user's request into a friendly, clear reminder text.
     - "напомни позвонить маме" → "Позвони маме"
-    - "надо сделать работу по дому" → "Напоминаю: пора заняться работой по дому"
-    - "нужно купить молоко" → "Не забудь купить молоко!"
-    - "завтра встреча с клиентом" → "Скоро встреча с клиентом"
-7.  If you can determine the notification text and time, respond with a JSON object containing two keys: "iso_datetime" and "text".
-8.  If the user's request is unclear, ambiguous, or not a scheduling request, respond with a JSON object containing one key: "error" with a value of "unknown_request".
-9.  Respond ONLY with the JSON object. Do not add any explanatory text or markdown formatting.
+    - "через час выключить суп" → "Выключи суп"
+4.  If the request is relative (e.g., "tomorrow", "in 2 hours"), calculate the absolute status.
+5.  If you can determine the notification text and time, return a JSON object with:
+    - "iso_datetime": The UTC ISO timestamp.
+    - "text": The formatted reminder text.
+6.  If the request is unclear, ambiguous, or not a scheduling request, return a JSON object with:
+    - "error": "unknown_request"
 
 **Examples:**
-- User Request: "Напомни мне завтра в 9 утра сходить в магазин"
-- User Timezone: "Europe/Moscow" (UTC+3)
-- Current Time (UTC): "2025-12-16T22:00:00"
-- Your JSON Response: {{"iso_datetime": "2025-12-18T06:00:00", "text": "Пора сходить в магазин! 🛒"}}
+- User: "Напомни мне завтра в 9 утра сходить в магазин" (Timezone: Europe/Moscow, Current: 2025-12-16T22:00:00)
+- Response: {"iso_datetime": "2025-12-18T06:00:00", "text": "Пора сходить в магазин! 🛒"}
 
-- User Request: "через час позвонить врачу"
-- User Timezone: "Europe/Moscow"
-- Current Time (UTC): "2025-12-16T10:00:00"
-- Your JSON Response: {{"iso_datetime": "2025-12-16T11:00:00", "text": "Позвони врачу ☎️"}}
+- User: "Приветик" 
+- Response: {"error": "unknown_request"}
 
-- User Request: "Привет, как дела?"
-- User Timezone: "America/New_York"
-- Current Time (UTC): "2025-12-16T20:00:00"
-- Your JSON Response: {{"error": "unknown_request"}}
+Respond ONLY with valid JSON.
 """
 
 @app.post("/process", response_model=TaskResponse)
 async def process_text(request: ProcessRequest):
-    prompt = PROMPT_TEMPLATE.format(
-        user_text=request.text,
-        current_time_iso=request.current_time,
-        user_timezone=request.timezone or "UTC"
-    )
-
+    print(f"DEBUG: Input text: '{request.text}'")
+    user_prompt = f"""
+    User Request: "{request.text}"
+    User Timezone: "{request.timezone or 'UTC'}"
+    Current Time (UTC): "{request.current_time}"
+    """
+    
     try:
-        response = model.generate_content(prompt)
-        cleaned_response = response.text.strip().replace("```json", "").replace("```", "").strip()
+        completion = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.1
+        )
         
-        data = json.loads(cleaned_response)
+        content = completion.choices[0].message.content
+        print(f"DEBUG: LLM Response content: '{content}'") 
+        if not content:
+             raise ValueError("Empty response from LLM")
+             
+        cleaned_content = content.replace("```json", "").replace("```", "").strip()
+        print(f"DEBUG: Cleaned content: '{cleaned_content}'")
+        
+        data = json.loads(cleaned_content)
+        print(f"DEBUG: Parsed JSON: {data.keys()}")
 
         if "error" in data:
-            return TaskResponse(task="unknown", params=None)
+            msg = str(data['error'])
+            print(f"DEBUG: Error in data: {msg}")
+            return TaskResponse(task="unknown", error_message=msg)
 
         if "iso_datetime" in data and "text" in data:
+            print("DEBUG: Valid notify task detected")
             task_params = TaskParams(
                 iso_datetime=data["iso_datetime"],
                 text=data["text"]
             )
             return TaskResponse(task="notify", params=task_params)
         else:
-            return TaskResponse(task="unknown", params=None)
+            msg = f"Missing keys. Found: {list(data.keys())}"
+            print(f"DEBUG: {msg}")
+            return TaskResponse(task="unknown", error_message=msg)
 
     except (json.JSONDecodeError, Exception) as e:
         print(f"Error processing model response: {e}")
+        # In production would log stack trace
         raise HTTPException(status_code=500, detail="Failed to process the request with the language model.")
 
 if __name__ == "__main__":

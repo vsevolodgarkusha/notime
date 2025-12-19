@@ -4,7 +4,9 @@ import sys
 import httpx
 import os
 from datetime import datetime, timedelta, timezone
+import io
 from dotenv import load_dotenv
+from groq import Groq
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
@@ -20,6 +22,8 @@ TOKEN = os.getenv("BOT_TOKEN")
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8001")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "http://24.135.38.33:22222")
+VOICE_RATE_LIMIT_SECONDS = 60
+ADMIN_IDS = [143743387] # vsevolodg
 
 redis_client = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
 tf = TimezoneFinder()
@@ -166,6 +170,72 @@ async def handle_snooze_callback(callback: CallbackQuery):
         except Exception as e:
             logging.error(f"Error snoozing task: {e}")
             await callback.answer("Ошибка при откладывании", show_alert=True)
+
+@dp.message(F.voice)
+async def handle_voice(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    
+    # Rate limit check (bypass for admins)
+    rate_limit_key = f"voice_limit:{user_id}"
+    if user_id not in ADMIN_IDS and await redis_client.get(rate_limit_key):
+        await message.answer("⏳ Подождите минуту перед отправкой следующего голосового.")
+        return
+    
+    if user_id not in ADMIN_IDS:
+        await redis_client.set(rate_limit_key, "1", ex=VOICE_RATE_LIMIT_SECONDS)
+        
+    await bot.send_chat_action(chat_id, "typing")
+    
+    user_timezone = await redis_client.get(f"timezone:{user_id}")
+    if not user_timezone:
+        await message.answer(
+            "⚠️ Сначала установи часовой пояс!\n\n"
+            "Используй /timezone или /autotimezone"
+        )
+        return
+
+    processing_msg = await message.answer("🎤 Слушаю и распознаю...")
+    
+    try:
+        # Download voice file
+        file_id = message.voice.file_id
+        file = await bot.get_file(file_id)
+        file_path = file.file_path
+        
+        voice_buffer = io.BytesIO()
+        await bot.download_file(file_path, voice_buffer)
+        voice_buffer.seek(0)
+        
+        # Transcribe with Groq
+        client = Groq() # uses GROQ_API_KEY env var
+        
+        transcription = client.audio.transcriptions.create(
+            file=("voice.ogg", voice_buffer.read()),
+            model="whisper-large-v3",
+            response_format="text"
+        )
+        
+        text = str(transcription).strip()
+        await processing_msg.edit_text(f"🗣 Распознано: «{text}»\n⏳ Обрабатываю запрос...")
+        
+        # Send to backend
+        payload = {
+            "telegram_id": user_id,
+            "chat_id": chat_id,
+            "message_id": processing_msg.message_id,
+            "text": text,
+            "timezone": user_timezone,
+        }
+
+        async with httpx.AsyncClient(timeout=10.0) as http_client:
+            response = await http_client.post(f"{BACKEND_URL}/process-async", json=payload)
+            response.raise_for_status()
+
+    except Exception as e:
+        import traceback
+        logging.error(f"Error processing voice: {e}\n{traceback.format_exc()}")
+        await processing_msg.edit_text(f"❌ Ошибка при обработке голосового сообщения: {e}")
 
 @dp.callback_query(F.data.startswith("complete_"))
 async def handle_complete_callback(callback: CallbackQuery):
