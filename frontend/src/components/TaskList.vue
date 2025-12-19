@@ -10,8 +10,23 @@
       <div v-if="activeTasks.length" class="section">
         <div v-for="task in activeTasks" :key="task.id" class="task-item">
           <div class="task-content">
-            <div class="task-description">{{ task.description }}</div>
-            <div class="task-time">{{ formatDate(task.due_date) }}</div>
+            <div class="task-description">
+              <div v-if="editingTaskId === task.id" class="edit-mode">
+                <input 
+                  v-model="editingText" 
+                  ref="editInput"
+                  @keyup.enter="saveEdit(task)"
+                  @keyup.esc="cancelEdit"
+                  class="edit-input"
+                />
+                <button @click="saveEdit(task)" class="btn-icon">💾</button>
+                <button @click="cancelEdit" class="btn-icon">✖</button>
+              </div>
+              <div v-else @click="startEdit(task)" class="text-display">
+                {{ task.description }} ✏️
+              </div>
+            </div>
+            <div class="task-time">{{ task.display_date || formatDate(task.due_date) }}</div>
             <div class="task-status" :class="task.status">{{ statusLabel(task.status) }}</div>
           </div>
           <div class="task-actions">
@@ -48,6 +63,7 @@ interface Task {
   id: number;
   description: string;
   due_date: string;
+  display_date: string;
   status: string;
   created_at: string;
 }
@@ -57,16 +73,19 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const telegramUserId = ref<number | null>(null);
 
-const API_BASE = 'http://24.135.38.33:22222/api';
+const editingTaskId = ref<number | null>(null);
+const editingText = ref('');
+
+const API_BASE = '/api';
 
 const activeTasks = computed(() => 
   tasks.value.filter(t => t.status === 'created' || t.status === 'sent')
-    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 );
 
 const completedTasks = computed(() => 
   tasks.value.filter(t => t.status === 'completed' || t.status === 'cancelled')
-    .sort((a, b) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime())
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 );
 
 const statusLabel = (status: string) => {
@@ -100,7 +119,7 @@ const fetchTasks = async () => {
   
   try {
     const response = await fetch(`${API_BASE}/tasks?telegram_id=${telegramUserId.value}`);
-    if (!response.ok) throw new Error('Ошибка загрузки задач');
+    if (!response.ok) throw new Error('Не удалось загрузить задачи');
     tasks.value = await response.json();
   } catch (e: any) {
     error.value = e.message;
@@ -116,7 +135,7 @@ const updateTaskStatus = async (id: number, status: string) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
-    if (!response.ok) throw new Error('Ошибка обновления');
+    if (!response.ok) throw new Error('Не удалось обновить статус');
     
     const taskIndex = tasks.value.findIndex(t => t.id === id);
     if (taskIndex !== -1) {
@@ -130,9 +149,42 @@ const updateTaskStatus = async (id: number, status: string) => {
 const completeTask = (id: number) => updateTaskStatus(id, 'completed');
 const cancelTask = (id: number) => updateTaskStatus(id, 'cancelled');
 
+const startEdit = (task: Task) => {
+  editingTaskId.value = task.id;
+  editingText.value = task.description;
+};
+
+const cancelEdit = () => {
+  editingTaskId.value = null;
+  editingText.value = '';
+};
+
+const saveEdit = async (task: Task) => {
+  if (!editingText.value.trim() || editingText.value === task.description) {
+    cancelEdit();
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/tasks/${task.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: editingText.value }),
+    });
+    
+    if (!response.ok) throw new Error('Не удалось сохранить изменения');
+    
+    task.description = editingText.value;
+    cancelEdit();
+  } catch (e: any) {
+    error.value = e.message;
+  }
+};
+
 onMounted(() => {
   if (window.Telegram?.WebApp) {
     window.Telegram.WebApp.ready();
+    window.Telegram.WebApp.expand();
     telegramUserId.value = window.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? null;
   }
   
@@ -182,16 +234,16 @@ onMounted(() => {
 }
 
 .task-item {
-  background: linear-gradient(135deg, #2d2d44 0%, #1f1f35 100%);
+  background: var(--tg-theme-secondary-bg-color, #2d2d44);
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .task-item.inactive {
   opacity: 0.6;
-  background: linear-gradient(135deg, #252535 0%, #1a1a28 100%);
+  background: var(--tg-theme-secondary-bg-color, #252535);
 }
 
 .task-content {
@@ -306,5 +358,39 @@ onMounted(() => {
 
 .completed-section .task-actions {
   display: none;
+}
+
+.edit-mode {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.edit-input {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--tg-theme-hint-color, #888);
+  background: var(--tg-theme-bg-color, #fff);
+  color: var(--tg-theme-text-color, #000);
+}
+
+.btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+}
+
+.text-display {
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.2s;
+}
+
+.text-display:hover {
+  border-bottom-color: var(--tg-theme-hint-color, #888);
 }
 </style>

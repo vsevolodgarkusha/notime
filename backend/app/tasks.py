@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from .db import SessionLocal
 from . import models
 from .models import TaskStatus
+from .utils import format_user_time
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 LLM_SERVICE_URL = os.getenv("LLM_SERVICE_URL", "http://llm-service:8000")
@@ -58,12 +59,14 @@ def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: s
         db.commit()
         db.refresh(new_task)
         
-        formatted_time = eta.strftime("%d.%m.%Y в %H:%M")
-        edit_message_with_cancel_button(
+        formatted_time = format_user_time(eta, timezone_str)
+        
+        # User requested: "on message with reminder add 3 inline buttons... on message after creation remove cancel button"
+        # So here (creation) we remove buttons.
+        edit_message(
             chat_id, 
             message_id, 
-            f"✅ Задача запланирована!\n\n📝 {description}\n⏰ {formatted_time} UTC",
-            new_task.id
+            f"✅ Задача запланирована!\n\n📝 {description}\n⏰ {formatted_time}"
         )
         logging.info(f"Task {new_task.id} created for user {telegram_id}")
         
@@ -87,8 +90,14 @@ def check_due_tasks():
         logging.info(f"Found {len(due_tasks)} due tasks")
         
         for task in due_tasks:
+            time_str = format_user_time(task.due_date, task.user.timezone)
+
             logging.info(f"Sending notification for task {task.id} to user {task.user.telegram_id}")
-            send_notification(task.chat_id or task.user.telegram_id, f"🔔 Напоминание!\n\n{task.description}")
+            send_notification_with_buttons(
+                task.chat_id or task.user.telegram_id, 
+                f"🔔 Напоминание!\n\n📝 {task.description}\n⏰ {time_str}",
+                task.id
+            )
             task.status = TaskStatus.SENT
             db.commit()
             logging.info(f"Task {task.id} marked as sent")
@@ -139,19 +148,23 @@ def edit_message(chat_id, message_id, text):
     except httpx.RequestError as e:
         logging.error(f"Request error occurred while editing message: {e}")
 
-def edit_message_with_cancel_button(chat_id, message_id, text, task_id):
+def send_notification_with_buttons(chat_id, text, task_id):
     if BOT_TOKEN is None:
         logging.error("BOT_TOKEN environment variable is not set")
         return
 
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "message_id": message_id,
         "text": text,
         "reply_markup": {
             "inline_keyboard": [
-                [{"text": "❌ Отменить", "callback_data": f"cancel_{task_id}"}]
+                [{"text": "❌ Отменить", "callback_data": f"cancel_{task_id}"}],
+                [
+                    {"text": "🔁 5 мин", "callback_data": f"snooze_{task_id}_5"},
+                    {"text": "🔁 1 час", "callback_data": f"snooze_{task_id}_60"}
+                ],
+                [{"text": "✅ Готово", "callback_data": f"complete_{task_id}"}]
             ]
         }
     }
@@ -159,8 +172,8 @@ def edit_message_with_cancel_button(chat_id, message_id, text, task_id):
         with httpx.Client() as client:
             response = client.post(url, json=payload)
             response.raise_for_status()
-            logging.info(f"Successfully edited message {message_id} with cancel button")
+            logging.info(f"Successfully sent notification with buttons to {chat_id}")
     except httpx.HTTPStatusError as e:
-        logging.error(f"HTTP error occurred while editing message: {e}")
+        logging.error(f"HTTP error occurred while sending notification: {e}")
     except httpx.RequestError as e:
-        logging.error(f"Request error occurred while editing message: {e}")
+        logging.error(f"Request error occurred while sending notification: {e}")

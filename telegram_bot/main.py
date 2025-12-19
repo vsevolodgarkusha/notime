@@ -3,6 +3,7 @@ import logging
 import sys
 import httpx
 import os
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher, types, F
@@ -140,7 +141,49 @@ async def handle_cancel_callback(callback: CallbackQuery):
         except Exception as e:
             logging.error(f"Error cancelling task: {e}")
             await callback.answer("Ошибка при отмене задачи", show_alert=True)
+@dp.callback_query(F.data.startswith("snooze_"))
+async def handle_snooze_callback(callback: CallbackQuery):
+    parts = callback.data.split("_")
+    task_id = parts[1]
+    minutes = int(parts[2])
+    
+    new_due_date = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.patch(
+                f"{BACKEND_URL}/api/tasks/{task_id}",
+                json={
+                    "status": "created",
+                    "due_date": new_due_date.isoformat()
+                }
+            )
+            response.raise_for_status()
+            
+            label = "час" if minutes == 60 else f"{minutes} мин"
+            await callback.message.edit_text(f"🔕 Отложено на {label}")
+            await callback.answer(f"Отложено на {label}")
+        except Exception as e:
+            logging.error(f"Error snoozing task: {e}")
+            await callback.answer("Ошибка при откладывании", show_alert=True)
 
+@dp.callback_query(F.data.startswith("complete_"))
+async def handle_complete_callback(callback: CallbackQuery):
+    task_id = callback.data.split("_")[1]
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.patch(
+                f"{BACKEND_URL}/api/tasks/{task_id}",
+                json={"status": "completed"}
+            )
+            response.raise_for_status()
+            
+            await callback.message.edit_text("✅ Выполнено")
+            await callback.answer("Задача выполнена")
+        except Exception as e:
+            logging.error(f"Error completing task: {e}")
+            await callback.answer("Ошибка при выполнении", show_alert=True)
 @dp.message()
 async def fallback_handler(message: Message) -> None:
     await message.answer("🤔 Не понял. Напиши текстом, о чём напомнить.")

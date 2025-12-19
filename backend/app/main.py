@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from . import models, db
 from .db import SessionLocal, engine
 from .models import TaskStatus
+from .utils import format_user_time
 
 load_dotenv()
 
@@ -38,11 +39,17 @@ class TaskResponse(BaseModel):
     id: int
     description: str
     due_date: str
+    display_date: str
     status: str
     created_at: str
 
 class StatusUpdate(BaseModel):
     status: str
+
+class TaskUpdate(BaseModel):
+    description: Optional[str] = None
+    status: Optional[str] = None
+    due_date: Optional[str] = None
 
 class ProcessRequest(BaseModel):
     telegram_id: int
@@ -120,27 +127,50 @@ async def get_tasks(telegram_id: int, db: Session = Depends(get_db)):
             id=t.id,
             description=t.description,
             due_date=t.due_date.isoformat() if t.due_date else "",
+            display_date=format_user_time(t.due_date, user.timezone) if t.due_date else "",
             status=t.status.value,
             created_at=t.created_at.isoformat() if t.created_at else "",
         )
         for t in tasks
     ]
 
-@app.patch("/api/tasks/{task_id}/status")
-async def update_task_status(task_id: int, update: StatusUpdate, db: Session = Depends(get_db)):
+@app.patch("/api/tasks/{task_id}")
+async def update_task(task_id: int, update: TaskUpdate, db: Session = Depends(get_db)):
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Задача не найдена")
     
-    try:
-        new_status = TaskStatus(update.status)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Неверный статус")
+    if update.description is not None:
+        task.description = update.description
     
-    task.status = new_status
+    if update.status is not None:
+        try:
+            task.status = TaskStatus(update.status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Неверный статус")
+            
+    if update.due_date is not None:
+        try:
+            eta = datetime.fromisoformat(update.due_date)
+            if eta.tzinfo is None:
+                eta = eta.replace(tzinfo=timezone.utc)
+            task.due_date = eta
+        except ValueError:
+             raise HTTPException(status_code=400, detail="Неверная дата")
+
     db.commit()
+    db.refresh(task)
     
-    return {"message": "Статус обновлён", "status": new_status.value}
+    return {
+        "message": "Задача обновлена",
+        "task": {
+            "id": task.id,
+            "description": task.description,
+            "status": task.status.value,
+            "due_date": task.due_date.isoformat() if task.due_date else None,
+            "display_date": format_user_time(task.due_date, task.user.timezone) if task.due_date and task.user else ""
+        }
+    }
 
 if __name__ == "__main__":
     import uvicorn
