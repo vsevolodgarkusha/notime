@@ -6,6 +6,17 @@ services:
     ports:
       - "6379:6379"
 
+  postgres:
+    image: postgres:13
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=dbname
+    ports:
+      - "5432:5432"
+
   llm-service:
     build: ./llm_service
     ports:
@@ -21,8 +32,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - BOT_TOKEN=${BOT_TOKEN}
+      - DATABASE_URL=postgresql://user:password@postgres/dbname
     depends_on:
       - redis
+      - postgres
 
   celery-worker:
     build: ./backend
@@ -30,8 +43,27 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - BOT_TOKEN=${BOT_TOKEN}
+      - DATABASE_URL=postgresql://user:password@postgres/dbname
     depends_on:
       - redis
+      - backend
+      - postgres
+
+  celery-beat:
+    build: ./backend
+    command: uv run celery -A app.celery_app beat --loglevel=info
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://user:password@postgres/dbname
+    depends_on:
+      - redis
+      - celery-worker
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "22222:80"
+    depends_on:
       - backend
 
   telegram-bot:
@@ -42,6 +74,7 @@ services:
     depends_on:
       - llm-service
       - backend
+      - frontend
 
   flower:
     image: mher/flower:2.0.1
@@ -53,3 +86,6 @@ services:
     depends_on:
       - redis
       - celery-worker
+
+volumes:
+  postgres_data:

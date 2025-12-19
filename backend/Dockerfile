@@ -1,6 +1,9 @@
 # Stage 1: Build dependencies
 FROM python:3.14.2-slim AS builder
 
+# Install build essentials for compiling packages like psycopg2
+RUN apt-get update && apt-get install -y build-essential libpq-dev
+
 # Install uv by copying it from the official image
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 

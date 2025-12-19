@@ -1,6 +1,9 @@
 # Stage 1: Build dependencies
 FROM python:3.14.2-slim AS builder
 
+# Install build essentials for compiling packages like numpy and cffi
+RUN apt-get update && apt-get install -y build-essential libffi-dev
+
 # Install uv by copying it from the official image
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 

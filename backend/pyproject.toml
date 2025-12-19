@@ -9,6 +9,9 @@ dependencies = [
     "pydantic==2.12.5",
     "httpx==0.28.1",
     "python-dotenv==1.2.1",
+    "psycopg2-binary",
+    "alembic",
+    "sqlalchemy",
 ]
 
 [project.optional-dependencies]
