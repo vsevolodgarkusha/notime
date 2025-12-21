@@ -21,7 +21,8 @@ load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8001")
-WEBAPP_URL = os.getenv("WEBAPP_URL", "http://24.135.38.33:22222")
+PUBLIC_DOMAIN = os.getenv("PUBLIC_DOMAIN", "https://bot.dzen.today")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://bot.dzen.today")
 VOICE_RATE_LIMIT_SECONDS = 60
 ADMIN_IDS = [143743387] # vsevolodg
 
@@ -37,12 +38,42 @@ def get_location_keyboard():
 
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
+    user_id = message.from_user.id
+    username = message.from_user.username
+
+    # Register user in database
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            await client.post(
+                f"{BACKEND_URL}/api/users/register",
+                json={
+                    "telegram_id": user_id,
+                    "telegram_username": username
+                }
+            )
+        except Exception as e:
+            logging.error(f"Error registering user: {e}")
+
+    # Check if this is a callback from Google Calendar connection
+    args = message.text.split(maxsplit=1)
+    if len(args) > 1:
+        param = args[1]
+        if param == "calendar_connected":
+            await message.answer("✅ Google Calendar успешно подключен!\n\nТеперь все задачи будут синхронизироваться с вашим календарем.")
+            return
+        elif param == "calendar_error":
+            await message.answer("❌ Ошибка при подключении Google Calendar.\n\nПопробуйте еще раз через /calendar")
+            return
+
     await message.answer(
-        f"Привет, {message.from_user.full_name}! 👋\n\n"
+        f"Привет, {message.from_user.full_name}!\n\n"
         "Я помогу тебе планировать напоминания.\n\n"
         "Сначала настрой часовой пояс:\n"
         "• /timezone Europe/Moscow — вручную\n"
         "• /autotimezone — автоматически по геолокации\n\n"
+        "Дополнительно:\n"
+        "• /calendar — подключить Google Calendar\n"
+        "• /add_friend — добавить друга\n\n"
         "Затем просто напиши мне, о чём напомнить!\n"
         "Например: «Напомни через час позвонить маме»"
     )
@@ -70,6 +101,227 @@ async def command_autotimezone_handler(message: Message) -> None:
         reply_markup=get_location_keyboard()
     )
 
+
+@dp.message(Command("calendar"))
+async def command_calendar_handler(message: Message) -> None:
+    user_id = message.from_user.id
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            # Check current connection status
+            status_response = await client.get(
+                f"{BACKEND_URL}/api/google/status",
+                params={"telegram_id": user_id}
+            )
+            status_response.raise_for_status()
+            status_data = status_response.json()
+
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+            if status_data.get("connected"):
+                # Already connected - offer to disconnect
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Отключить Google Calendar", callback_data="disconnect_calendar")]
+                ])
+                await message.answer(
+                    "✅ Google Calendar подключен.\n\n"
+                    "Все задачи синхронизируются с вашим календарем.",
+                    reply_markup=keyboard
+                )
+            else:
+                # Not connected - generate direct link to backend OAuth endpoint
+                auth_url = f"{PUBLIC_DOMAIN}/api/google/auth?telegram_id={user_id}"
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Подключить Google Calendar", url=auth_url)]
+                ])
+                await message.answer(
+                    "Подключите Google Calendar для синхронизации задач.\n\n"
+                    "После подключения все новые задачи будут автоматически добавляться в ваш календарь.",
+                    reply_markup=keyboard
+                )
+        except httpx.HTTPStatusError as e:
+            logging.error(f"HTTP error in calendar command: {e}")
+            if e.response.status_code == 503:
+                await message.answer("❌ Google Calendar не настроен на сервере.\n\nОбратитесь к администратору.")
+            elif e.response.status_code == 404:
+                await message.answer("❌ Вы не зарегистрированы. Отправьте /start")
+            else:
+                await message.answer(f"❌ Ошибка сервера: {e.response.status_code}")
+        except Exception as e:
+            logging.error(f"Error in calendar command: {e}")
+            await message.answer("❌ Ошибка при работе с Google Calendar")
+
+
+@dp.callback_query(F.data == "disconnect_calendar")
+async def handle_disconnect_calendar(callback: CallbackQuery):
+    user_id = callback.from_user.id
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.delete(
+                f"{BACKEND_URL}/api/google/disconnect",
+                params={"telegram_id": user_id}
+            )
+            response.raise_for_status()
+
+            await callback.message.edit_text("Google Calendar отключен.")
+            await callback.answer("Календарь отключен")
+        except Exception as e:
+            logging.error(f"Error disconnecting calendar: {e}")
+            await callback.answer("Ошибка при отключении", show_alert=True)
+
+
+@dp.message(Command("add_friend"))
+async def command_add_friend_handler(message: Message) -> None:
+    user_id = message.from_user.id
+    args = message.text.split(maxsplit=1)
+
+    if len(args) < 2:
+        await message.answer(
+            "Укажите ID или username друга.\n\n"
+            "Примеры:\n"
+            "• /add_friend 123456789\n"
+            "• /add_friend @username"
+        )
+        return
+
+    friend_identifier = args[1].strip()
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.post(
+                f"{BACKEND_URL}/api/friends/request",
+                params={"telegram_id": user_id},
+                json={"friend_identifier": friend_identifier}
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                to_user_id = data.get("to_user_id")
+
+                # Send notification to the target user
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="Принять", callback_data=f"friend_accept_{user_id}"),
+                        InlineKeyboardButton(text="Отклонить", callback_data=f"friend_reject_{user_id}")
+                    ]
+                ])
+
+                username = message.from_user.username or ""
+                display_name = f"@{username}" if username else str(user_id)
+
+                try:
+                    bot = message.bot
+                    await bot.send_message(
+                        chat_id=to_user_id,
+                        text=f"Новый запрос на дружбу от {display_name}",
+                        reply_markup=keyboard
+                    )
+                except Exception as e:
+                    logging.error(f"Could not send notification: {e}")
+
+                await message.answer("Запрос на дружбу отправлен!")
+            else:
+                error_detail = response.json().get("detail", "Неизвестная ошибка")
+                await message.answer(f"Ошибка: {error_detail}")
+        except Exception as e:
+            logging.error(f"Error sending friend request: {e}")
+            await message.answer("Ошибка при отправке запроса")
+
+
+@dp.callback_query(F.data.startswith("friend_accept_"))
+async def handle_friend_accept(callback: CallbackQuery):
+    from_user_id = int(callback.data.split("_")[2])
+    to_user_id = callback.from_user.id
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            # Get the pending request
+            requests_response = await client.get(
+                f"{BACKEND_URL}/api/friends/requests",
+                params={"telegram_id": to_user_id}
+            )
+            requests_response.raise_for_status()
+            requests = requests_response.json()
+
+            # Find the request from this user
+            request_id = None
+            for r in requests:
+                if r["from_user_telegram_id"] == from_user_id and r["status"] == "pending":
+                    request_id = r["id"]
+                    break
+
+            if not request_id:
+                await callback.answer("Запрос не найден", show_alert=True)
+                return
+
+            # Accept the request
+            response = await client.post(
+                f"{BACKEND_URL}/api/friends/requests/{request_id}/respond",
+                params={"telegram_id": to_user_id},
+                json={"action": "accept"}
+            )
+            response.raise_for_status()
+
+            await callback.message.edit_text("Запрос на дружбу принят!")
+            await callback.answer("Принято")
+
+            # Notify the sender
+            try:
+                bot = callback.message.bot
+                await bot.send_message(
+                    chat_id=from_user_id,
+                    text=f"Ваш запрос на дружбу принят!"
+                )
+            except Exception as e:
+                logging.error(f"Could not notify sender: {e}")
+        except Exception as e:
+            logging.error(f"Error accepting friend request: {e}")
+            await callback.answer("Ошибка", show_alert=True)
+
+
+@dp.callback_query(F.data.startswith("friend_reject_"))
+async def handle_friend_reject(callback: CallbackQuery):
+    from_user_id = int(callback.data.split("_")[2])
+    to_user_id = callback.from_user.id
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            # Get the pending request
+            requests_response = await client.get(
+                f"{BACKEND_URL}/api/friends/requests",
+                params={"telegram_id": to_user_id}
+            )
+            requests_response.raise_for_status()
+            requests = requests_response.json()
+
+            # Find the request from this user
+            request_id = None
+            for r in requests:
+                if r["from_user_telegram_id"] == from_user_id and r["status"] == "pending":
+                    request_id = r["id"]
+                    break
+
+            if not request_id:
+                await callback.answer("Запрос не найден", show_alert=True)
+                return
+
+            # Reject the request
+            response = await client.post(
+                f"{BACKEND_URL}/api/friends/requests/{request_id}/respond",
+                params={"telegram_id": to_user_id},
+                json={"action": "reject"}
+            )
+            response.raise_for_status()
+
+            await callback.message.edit_text("Запрос на дружбу отклонен.")
+            await callback.answer("Отклонено")
+        except Exception as e:
+            logging.error(f"Error rejecting friend request: {e}")
+            await callback.answer("Ошибка", show_alert=True)
+
+
 @dp.message(F.location)
 async def handle_location(message: Message):
     user_id = message.from_user.id
@@ -95,6 +347,7 @@ async def process_message(message: Message) -> None:
     user_id = message.from_user.id
     chat_id = message.chat.id
     text = message.text
+    username = message.from_user.username
 
     if text.startswith("/"):
         return
@@ -115,11 +368,12 @@ async def process_message(message: Message) -> None:
         "message_id": processing_msg.message_id,
         "text": text,
         "timezone": user_timezone,
+        "username": username,
     }
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            response = await client.post(f"{BACKEND_URL}/process-async", json=payload)
+            response = await client.post(f"{BACKEND_URL}/api/process-async", json=payload)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             logging.error(f"HTTP error: {e}")
@@ -131,7 +385,7 @@ async def process_message(message: Message) -> None:
 @dp.callback_query(F.data.startswith("cancel_"))
 async def handle_cancel_callback(callback: CallbackQuery):
     task_id = callback.data.split("_")[1]
-    
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             response = await client.patch(
@@ -139,8 +393,11 @@ async def handle_cancel_callback(callback: CallbackQuery):
                 json={"status": "cancelled"}
             )
             response.raise_for_status()
-            
-            await callback.message.edit_text("❌ Задача отменена")
+
+            # Remove inline buttons from notification
+            await callback.message.edit_reply_markup(reply_markup=None)
+            # Reply to the notification message with status
+            await callback.message.reply("❌ Задача отменена")
             await callback.answer("Задача отменена")
         except Exception as e:
             logging.error(f"Error cancelling task: {e}")
@@ -150,9 +407,9 @@ async def handle_snooze_callback(callback: CallbackQuery):
     parts = callback.data.split("_")
     task_id = parts[1]
     minutes = int(parts[2])
-    
+
     new_due_date = datetime.now(timezone.utc) + timedelta(minutes=minutes)
-    
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             response = await client.patch(
@@ -163,9 +420,12 @@ async def handle_snooze_callback(callback: CallbackQuery):
                 }
             )
             response.raise_for_status()
-            
+
             label = "час" if minutes == 60 else f"{minutes} мин"
-            await callback.message.edit_text(f"🔕 Отложено на {label}")
+            # Remove inline buttons from notification
+            await callback.message.edit_reply_markup(reply_markup=None)
+            # Reply to the notification message with status
+            await callback.message.reply(f"🔕 Отложено на {label}")
             await callback.answer(f"Отложено на {label}")
         except Exception as e:
             logging.error(f"Error snoozing task: {e}")
@@ -229,7 +489,7 @@ async def handle_voice(message: Message, bot: Bot):
         }
 
         async with httpx.AsyncClient(timeout=10.0) as http_client:
-            response = await http_client.post(f"{BACKEND_URL}/process-async", json=payload)
+            response = await http_client.post(f"{BACKEND_URL}/api/process-async", json=payload)
             response.raise_for_status()
 
     except Exception as e:
@@ -240,7 +500,7 @@ async def handle_voice(message: Message, bot: Bot):
 @dp.callback_query(F.data.startswith("complete_"))
 async def handle_complete_callback(callback: CallbackQuery):
     task_id = callback.data.split("_")[1]
-    
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             response = await client.patch(
@@ -248,8 +508,11 @@ async def handle_complete_callback(callback: CallbackQuery):
                 json={"status": "completed"}
             )
             response.raise_for_status()
-            
-            await callback.message.edit_text("✅ Выполнено")
+
+            # Remove inline buttons from notification
+            await callback.message.edit_reply_markup(reply_markup=None)
+            # Reply to the notification message with status
+            await callback.message.reply("✅ Выполнено")
             await callback.answer("Задача выполнена")
         except Exception as e:
             logging.error(f"Error completing task: {e}")

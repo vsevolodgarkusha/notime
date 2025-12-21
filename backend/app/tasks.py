@@ -2,19 +2,21 @@ from .celery_app import app
 import logging
 import httpx
 import os
+import json
 from datetime import datetime, timezone
 from .db import SessionLocal
 from . import models
 from .models import TaskStatus
 from .utils import format_user_time
+from . import google_calendar
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 LLM_SERVICE_URL = os.getenv("LLM_SERVICE_URL", "http://llm-service:8000")
 
 @app.task
-def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: str, timezone_str: str):
+def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: str, timezone_str: str, username: str = None):
     logging.info(f"Processing LLM request for user {telegram_id}")
-    
+
     db = SessionLocal()
     try:
         current_time_utc = datetime.now(timezone.utc).isoformat()
@@ -23,18 +25,18 @@ def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: s
             "current_time": current_time_utc,
             "timezone": timezone_str,
         }
-        
+
         with httpx.Client(timeout=60.0) as client:
             response = client.post(f"{LLM_SERVICE_URL}/process", json=payload)
             response.raise_for_status()
             task_data = response.json()
-        
+
         if task_data.get("task") == "unknown":
             reason = task_data.get("error_message", "Unknown reason")
             logging.warning(f"LLM returned unknown task. Reason: {reason}")
             edit_message(chat_id, message_id, f"❌ Не удалось понять запрос.\nПричина: {reason}")
             return
-        
+
         # Check for duplicates using message_id
         existing_task = db.query(models.Task).filter(models.Task.message_id == message_id).first()
         if existing_task:
@@ -43,10 +45,15 @@ def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: s
 
         user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
         if not user:
-            user = models.User(telegram_id=telegram_id, timezone=timezone_str)
+            user = models.User(telegram_id=telegram_id, timezone=timezone_str, telegram_username=username)
             db.add(user)
             db.commit()
             db.refresh(user)
+        else:
+            # Update username if changed
+            if username and user.telegram_username != username:
+                user.telegram_username = username
+                db.commit()
         
         iso_datetime = task_data["params"]["iso_datetime"]
         description = task_data["params"]["text"]
@@ -66,15 +73,30 @@ def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: s
         db.add(new_task)
         db.commit()
         db.refresh(new_task)
-        
+
+        # Create Google Calendar event if user has connected calendar
+        calendar_status = ""
+        if user.google_calendar_token:
+            try:
+                token_data = json.loads(user.google_calendar_token)
+                event_id = google_calendar.create_calendar_event(
+                    token_data, description, eta, new_task.id
+                )
+                if event_id:
+                    new_task.google_calendar_event_id = event_id
+                    db.commit()
+                    calendar_status = "\n📅 Добавлено в Google Calendar"
+            except Exception as e:
+                logging.error(f"Error creating calendar event: {e}")
+
         formatted_time = format_user_time(eta, timezone_str)
-        
+
         # User requested: "on message with reminder add 3 inline buttons... on message after creation remove cancel button"
         # So here (creation) we remove buttons.
         edit_message(
-            chat_id, 
-            message_id, 
-            f"✅ Задача запланирована!\n\n📝 {description}\n⏰ {formatted_time}"
+            chat_id,
+            message_id,
+            f"✅ Задача запланирована!\n\n📝 {description}\n⏰ {formatted_time}{calendar_status}"
         )
         logging.info(f"Task {new_task.id} created for user {telegram_id}")
         

@@ -18,6 +18,9 @@ RUN uv sync
 # Stage 2: Final image
 FROM python:3.14.2-slim
 
+# Install netcat for database health check
+RUN apt-get update && apt-get install -y netcat-openbsd && rm -rf /var/lib/apt/lists/*
+
 # Install uv by copying it from the official image
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
@@ -32,6 +35,17 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy the application code
 COPY app/ ./app
+
+# Copy alembic configuration and migrations
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
+
+# Copy and make entrypoint executable
+COPY entrypoint.sh ./
+RUN chmod +x entrypoint.sh
+
+# Use entrypoint for migrations
+ENTRYPOINT ["./entrypoint.sh"]
 
 # Command to run the application
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]

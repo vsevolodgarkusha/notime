@@ -20,6 +20,19 @@ dist/
 
 # Environment files
 .env
+.env.*
+.env.local
+.env.*.local
+*.env
+
+# Secrets and credentials
+*.pem
+*.key
+*credentials*.json
+*secret*.json
+service-account*.json
+token.json
+token.pickle
 
 # OS-specific files
 .DS_Store

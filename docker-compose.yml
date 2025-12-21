@@ -34,17 +34,26 @@ services:
       - PYTHONUNBUFFERED=1
       - BOT_TOKEN=${BOT_TOKEN}
       - DATABASE_URL=postgresql://user:password@postgres/dbname
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
+      - STATE_SECRET=${STATE_SECRET}
+      - BOT_USERNAME=${BOT_USERNAME}
     depends_on:
       - redis
       - postgres
 
   celery-worker:
     build: ./backend
-    command: uv run celery -A app.celery_app worker --loglevel=info
+    entrypoint: []
+    command: ["uv", "run", "celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
     environment:
       - PYTHONUNBUFFERED=1
       - BOT_TOKEN=${BOT_TOKEN}
       - DATABASE_URL=postgresql://user:password@postgres/dbname
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - STATE_SECRET=${STATE_SECRET}
     depends_on:
       - redis
       - backend
@@ -52,7 +61,8 @@ services:
 
   celery-beat:
     build: ./backend
-    command: uv run celery -A app.celery_app beat --loglevel=info
+    entrypoint: []
+    command: ["uv", "run", "celery", "-A", "app.celery_app", "beat", "--loglevel=info"]
     environment:
       - PYTHONUNBUFFERED=1
       - DATABASE_URL=postgresql://user:password@postgres/dbname
@@ -83,8 +93,9 @@ services:
     build: ./telegram_bot
     environment:
       - PYTHONUNBUFFERED=1
-      - BOT_TOKEN=${BOT_TOKEN}
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - PUBLIC_DOMAIN=https://bot.dzen.today
+      - BOT_TOKEN=${BOT_TOKEN} 
     depends_on:
       - llm-service
       - backend
