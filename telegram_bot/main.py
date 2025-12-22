@@ -391,7 +391,7 @@ async def handle_cancel_callback(callback: CallbackQuery):
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             response = await client.patch(
-                f"{BACKEND_URL}/api/tasks/{task_id}/status",
+                f"{BACKEND_URL}/api/tasks/{task_id}",
                 json={"status": "cancelled"}
             )
             response.raise_for_status()

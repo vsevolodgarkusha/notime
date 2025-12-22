@@ -123,7 +123,7 @@ const editingText = ref('');
 const API_BASE = '/api';
 
 const activeTasks = computed(() =>
-  tasks.value.filter(t => t.status === 'created' || t.status === 'sent')
+  tasks.value.filter(t => t.status === 'created' || t.status === 'scheduled' || t.status === 'sent')
     .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
 );
 
@@ -134,7 +134,8 @@ const completedTasks = computed(() =>
 
 const statusLabel = (status: string) => {
   const labels: Record<string, string> = {
-    created: 'Ожидает',
+    created: 'Запланировано',
+    scheduled: 'Запланировано',
     sent: 'Отправлено',
     completed: 'Выполнено',
     cancelled: 'Отменено',
@@ -372,14 +373,15 @@ onMounted(() => {
   border-radius: 50%;
 }
 
-.task-status-indicator.created {
+.task-status-indicator.created,
+.task-status-indicator.scheduled {
   background: var(--warning);
   box-shadow: 0 0 8px var(--warning);
 }
 
 .task-status-indicator.sent {
-  background: var(--accent);
-  box-shadow: 0 0 8px var(--accent);
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
 }
 
 .task-status-indicator.completed {
@@ -400,6 +402,7 @@ onMounted(() => {
 
 .task-body {
   margin-bottom: 12px;
+  overflow: hidden;
 }
 
 .task-description {
@@ -431,18 +434,21 @@ onMounted(() => {
 
 .edit-mode {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
+  width: 100%;
+  min-width: 0;
 }
 
 .edit-input {
   flex: 1;
-  padding: 12px 16px;
+  min-width: 0;
+  padding: 10px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--accent);
   background: rgba(108, 92, 231, 0.1);
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 15px;
   font-family: inherit;
   outline: none;
 }
@@ -454,11 +460,12 @@ onMounted(() => {
 .edit-actions {
   display: flex;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .btn-icon {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--radius-sm);
   border: none;
   cursor: pointer;

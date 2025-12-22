@@ -90,6 +90,13 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-y: scroll;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+body::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
 }
 
 .app-container {
@@ -101,78 +108,64 @@ body {
 
 .main-content {
   flex: 1;
-  padding-bottom: 90px;
+  padding-bottom: 44px;
   overflow-y: auto;
 }
 
 .bottom-nav {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: 8px;
+  left: 12px;
+  right: 12px;
   display: flex;
   justify-content: center;
   gap: 8px;
-  background: rgba(15, 15, 26, 0.85);
+  background: rgba(30, 30, 45, 0.75);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-top: 1px solid var(--border);
-  padding: 12px 24px;
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
   z-index: 100;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
 .nav-item {
-  flex: 1;
-  max-width: 160px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   gap: 6px;
-  padding: 10px 16px;
+  padding: 8px 14px;
   text-decoration: none;
   color: var(--text-secondary);
   border-radius: var(--radius-sm);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.2s ease;
 }
 
 .nav-item:hover {
-  background: var(--bg-card);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .nav-item.active {
-  color: var(--accent);
-  background: var(--accent-light);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .nav-icon-wrapper {
-  width: 40px;
-  height: 40px;
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
-  transition: all 0.3s ease;
-}
-
-.nav-item.active .nav-icon-wrapper {
-  background: var(--accent);
-  box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4);
 }
 
 .nav-icon {
-  font-size: 22px;
-  transition: transform 0.3s ease;
-}
-
-.nav-item.active .nav-icon {
-  transform: scale(1.1);
-  filter: brightness(2) saturate(0);
+  font-size: 15px;
 }
 
 .nav-label {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
+  font-size: 13px;
+  font-weight: 500;
 }
 </style>

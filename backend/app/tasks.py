@@ -57,14 +57,21 @@ def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: s
         
         iso_datetime = task_data["params"]["iso_datetime"]
         description = task_data["params"]["text"]
-        
+
         eta = datetime.fromisoformat(iso_datetime)
         if eta.tzinfo is None:
             eta = eta.replace(tzinfo=timezone.utc)
-        
-        # If task is due within 5 minutes, schedule it immediately
+
+        # Validate that the task is not in the past (allow 1 minute tolerance)
         now = datetime.now(timezone.utc)
         delay_seconds = (eta - now).total_seconds()
+
+        if delay_seconds < -60:  # More than 1 minute in the past
+            logging.warning(f"Task scheduled in the past: {eta} (now: {now})")
+            edit_message(chat_id, message_id, "❌ Нельзя создать задачу в прошлом.\nУкажите время в будущем.")
+            return
+
+        # If task is due within 5 minutes, schedule it immediately
         should_schedule_now = delay_seconds <= 300  # 5 minutes
 
         new_task = models.Task(
@@ -247,12 +254,7 @@ def send_notification_with_buttons(chat_id, text, task_id):
         "text": text,
         "reply_markup": {
             "inline_keyboard": [
-                [{"text": "❌ Отменить", "callback_data": f"cancel_{task_id}"}],
-                [
-                    {"text": "🔁 5 мин", "callback_data": f"snooze_{task_id}_5"},
-                    {"text": "🔁 1 час", "callback_data": f"snooze_{task_id}_60"}
-                ],
-                [{"text": "✅ Готово", "callback_data": f"complete_{task_id}"}]
+                [{"text": "✅ Готово", "callback_data": f"complete_{task_id}"}, {"text": "❌ Отменить", "callback_data": f"cancel_{task_id}"}]
             ]
         }
     }

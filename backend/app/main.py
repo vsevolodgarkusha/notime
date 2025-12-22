@@ -234,6 +234,20 @@ async def update_task(task_id: int, update: TaskUpdate, db: Session = Depends(ge
     db.commit()
     db.refresh(task)
 
+    # Schedule notification if task was snoozed (status changed to CREATED with future due_date)
+    new_status = task.status
+    if new_status == TaskStatus.CREATED and task.due_date:
+        from .tasks import send_task_notification
+        now = datetime.now(timezone.utc)
+        delay_seconds = (task.due_date - now).total_seconds()
+        if 0 <= delay_seconds <= 300:  # Due within 5 minutes
+            send_task_notification.apply_async(
+                args=[task.id],
+                countdown=delay_seconds
+            )
+            task.status = TaskStatus.SCHEDULED
+            db.commit()
+
     # Handle Google Calendar sync
     if task.google_calendar_event_id and task.user and task.user.google_calendar_token:
         try:
