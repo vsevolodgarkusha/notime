@@ -7,6 +7,7 @@ Base = declarative_base()
 
 class TaskStatus(enum.Enum):
     CREATED = "created"
+    SCHEDULED = "scheduled"
     SENT = "sent"
     COMPLETED = "completed"
     CANCELLED = "cancelled"

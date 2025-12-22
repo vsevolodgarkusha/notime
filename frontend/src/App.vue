@@ -1,11 +1,41 @@
 <script setup lang="ts">
 import { RouterView, RouterLink, useRoute } from 'vue-router'
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 
 const route = useRoute()
 
 const isTasksActive = computed(() => route.path === '/tasks' || route.path === '/')
 const isFriendsActive = computed(() => route.path === '/friends')
+
+const hasFriends = ref(false)
+
+onMounted(async () => {
+  let telegramUserId: number | null = null
+
+  if (window.Telegram?.WebApp) {
+    telegramUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? null
+  }
+
+  if (!telegramUserId) {
+    const urlParams = new URLSearchParams(window.location.search)
+    const testId = urlParams.get('telegram_id')
+    if (testId) {
+      telegramUserId = parseInt(testId)
+    }
+  }
+
+  if (telegramUserId) {
+    try {
+      const response = await fetch(`/api/friends/status?telegram_id=${telegramUserId}`)
+      if (response.ok) {
+        const data = await response.json()
+        hasFriends.value = data.has_friends
+      }
+    } catch (e) {
+      console.error('Failed to fetch friends status:', e)
+    }
+  }
+})
 </script>
 
 <template>
@@ -20,7 +50,7 @@ const isFriendsActive = computed(() => route.path === '/friends')
         </div>
         <span class="nav-label">Задачи</span>
       </RouterLink>
-      <RouterLink to="/friends" :class="['nav-item', { active: isFriendsActive }]">
+      <RouterLink v-if="hasFriends" to="/friends" :class="['nav-item', { active: isFriendsActive }]">
         <div class="nav-icon-wrapper">
           <span class="nav-icon">👥</span>
         </div>

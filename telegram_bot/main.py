@@ -106,6 +106,11 @@ async def command_autotimezone_handler(message: Message) -> None:
 async def command_calendar_handler(message: Message) -> None:
     user_id = message.from_user.id
 
+    # Only admins can use the calendar feature
+    if user_id not in ADMIN_IDS:
+        await message.answer("❌ Эта функция доступна только для администраторов.")
+        return
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             # Check current connection status
@@ -521,7 +526,7 @@ async def setup_menu_button(bot: Bot):
     try:
         await bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(
-                text="📋 Мои задачи",
+                text="Задачи",
                 web_app=WebAppInfo(url=WEBAPP_URL)
             )
         )

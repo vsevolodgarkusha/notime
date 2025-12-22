@@ -248,7 +248,7 @@ async def update_task(task_id: int, update: TaskUpdate, db: Session = Depends(ge
             elif new_status == TaskStatus.COMPLETED:
                 # Mark event as completed
                 google_calendar.mark_event_completed(token_data, task.google_calendar_event_id, task.description)
-            elif old_status != TaskStatus.CREATED and new_status == TaskStatus.CREATED:
+            elif old_status not in (TaskStatus.CREATED, TaskStatus.SCHEDULED) and new_status == TaskStatus.CREATED:
                 # Task was snoozed - update event time
                 google_calendar.update_calendar_event(
                     token_data, task.google_calendar_event_id, task.description, task.due_date
@@ -352,6 +352,21 @@ async def get_friends(telegram_id: int, db: Session = Depends(get_db)):
         ))
 
     return friends
+
+
+@app.get("/api/friends/status")
+async def get_friends_status(telegram_id: int, db: Session = Depends(get_db)):
+    """Check if user has any friends (for showing/hiding friends tab)."""
+    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    if not user:
+        return {"has_friends": False}
+
+    has_friends = db.query(models.Friendship).filter(
+        ((models.Friendship.from_user_id == user.id) | (models.Friendship.to_user_id == user.id)) &
+        (models.Friendship.status == FriendshipStatus.ACCEPTED)
+    ).first() is not None
+
+    return {"has_friends": has_friends}
 
 
 @app.get("/api/friends/requests", response_model=List[FriendRequestInfo])
