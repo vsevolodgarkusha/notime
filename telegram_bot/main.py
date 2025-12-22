@@ -410,27 +410,38 @@ async def handle_snooze_callback(callback: CallbackQuery):
     task_id = parts[1]
     minutes = int(parts[2])
 
-    new_due_date = datetime.now(timezone.utc) + timedelta(minutes=minutes)
-
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            response = await client.patch(
+            # 1. Fetch the task to get its current due_date
+            get_response = await client.get(f"{BACKEND_URL}/api/tasks/{task_id}")
+            get_response.raise_for_status()
+            task_data = get_response.json()
+
+            # 2. Calculate new due_date from existing one
+            try:
+                current_due_date = datetime.fromisoformat(task_data["due_date"])
+            except (ValueError, KeyError):
+                current_due_date = datetime.now(timezone.utc)
+
+            new_due_date = current_due_date + timedelta(minutes=minutes)
+
+            # 3. Update task with new due_date
+            patch_response = await client.patch(
                 f"{BACKEND_URL}/api/tasks/{task_id}",
                 json={
-                    "status": "created",
+                    "status": "created", # Reschedule the task
                     "due_date": new_due_date.isoformat()
                 }
             )
-            response.raise_for_status()
+            patch_response.raise_for_status()
 
             label = "час" if minutes == 60 else f"{minutes} мин"
-            # Remove inline buttons from notification
             await callback.message.edit_reply_markup(reply_markup=None)
-            # Reply to the notification message with status
             await callback.message.reply(f"🔕 Отложено на {label}")
             await callback.answer(f"Отложено на {label}")
+
         except Exception as e:
-            logging.error(f"Error snoozing task: {e}")
+            logging.error(f"Error snoozing task {task_id}: {e}")
             await callback.answer("Ошибка при откладывании", show_alert=True)
 
 @dp.message(F.voice)

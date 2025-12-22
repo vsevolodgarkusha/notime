@@ -65,7 +65,7 @@ class Task(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     description = Column(String)
-    due_date = Column(DateTime)
+    due_date = Column(DateTime(timezone=True))
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     status = Column(
         Enum(TaskStatus, values_callable=lambda obj: [e.value for e in obj]),

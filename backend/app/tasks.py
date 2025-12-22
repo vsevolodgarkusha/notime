@@ -254,7 +254,14 @@ def send_notification_with_buttons(chat_id, text, task_id):
         "text": text,
         "reply_markup": {
             "inline_keyboard": [
-                [{"text": "✅ Готово", "callback_data": f"complete_{task_id}"}, {"text": "❌ Отменить", "callback_data": f"cancel_{task_id}"}]
+                [
+                    {"text": "🔁 5 мин", "callback_data": f"snooze_{task_id}_5"},
+                    {"text": "🔁 1 час", "callback_data": f"snooze_{task_id}_60"}
+                ],
+                [
+                    {"text": "✅ Готово", "callback_data": f"complete_{task_id}"},
+                    {"text": "❌ Отменить", "callback_data": f"cancel_{task_id}"}
+                ]
             ]
         }
     }

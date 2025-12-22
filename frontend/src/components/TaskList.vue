@@ -91,7 +91,7 @@
           <div class="task-footer">
             <div class="task-time">
               <span class="time-icon">⏰</span>
-              {{ formatDate(task.due_date) }}
+              {{ task.display_date || formatDate(task.due_date) }}
             </div>
           </div>
         </div>
@@ -129,7 +129,7 @@ const activeTasks = computed(() =>
 
 const completedTasks = computed(() =>
   tasks.value.filter(t => t.status === 'completed' || t.status === 'cancelled')
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .sort((a, b) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime())
 );
 
 const statusLabel = (status: string) => {

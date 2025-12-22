@@ -205,6 +205,22 @@ async def get_tasks(telegram_id: int, db: Session = Depends(get_db)):
         for t in tasks
     ]
 
+@app.get("/api/tasks/{task_id}", response_model=TaskResponse)
+async def get_task(task_id: int, db: Session = Depends(get_db)):
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+
+    user = task.user
+    return TaskResponse(
+        id=task.id,
+        description=task.description,
+        due_date=task.due_date.isoformat() if task.due_date else "",
+        display_date=format_user_time(task.due_date, user.timezone) if task.due_date and user.timezone else "",
+        status=task.status.value,
+        created_at=task.created_at.isoformat() if task.created_at else "",
+    )
+
 @app.patch("/api/tasks/{task_id}")
 async def update_task(task_id: int, update: TaskUpdate, db: Session = Depends(get_db)):
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
