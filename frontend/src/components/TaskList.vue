@@ -1,54 +1,98 @@
 <template>
   <div class="task-list-container">
-    <h1 class="header">📋 Мои задачи</h1>
+    <header class="page-header">
+      <h1 class="header-title">Мои задачи</h1>
+      <p class="header-subtitle" v-if="activeTasks.length">{{ activeTasks.length }} активных</p>
+    </header>
 
-    <div v-if="loading" class="feedback">Загрузка...</div>
-    <div v-else-if="error" class="feedback error">{{ error }}</div>
-    
+    <div v-if="loading" class="loading-state">
+      <div class="spinner"></div>
+      <p>Загрузка задач...</p>
+    </div>
+
+    <div v-else-if="error" class="error-state">
+      <span class="error-icon">⚠️</span>
+      <p>{{ error }}</p>
+    </div>
+
     <template v-else>
-      <!-- Active tasks -->
-      <div v-if="activeTasks.length" class="section">
-        <div v-for="task in activeTasks" :key="task.id" class="task-item">
-          <div class="task-content">
-            <div class="task-description">
-              <div v-if="editingTaskId === task.id" class="edit-mode">
-                <input 
-                  v-model="editingText" 
-                  ref="editInput"
-                  @keyup.enter="saveEdit(task)"
-                  @keyup.esc="cancelEdit"
-                  class="edit-input"
-                />
-                <button @click="saveEdit(task)" class="btn-icon">💾</button>
-                <button @click="cancelEdit" class="btn-icon">✖</button>
-              </div>
-              <div v-else @click="startEdit(task)" class="text-display">
-                {{ task.description }} ✏️
+      <div v-if="activeTasks.length" class="tasks-section">
+        <div v-for="task in activeTasks" :key="task.id" class="task-card">
+          <div class="task-header">
+            <div class="task-status-indicator" :class="task.status"></div>
+            <span class="task-status-text">{{ statusLabel(task.status) }}</span>
+          </div>
+
+          <div class="task-body">
+            <div v-if="editingTaskId === task.id" class="edit-mode">
+              <input
+                v-model="editingText"
+                @keyup.enter="saveEdit(task)"
+                @keyup.esc="cancelEdit"
+                class="edit-input"
+                placeholder="Описание задачи..."
+              />
+              <div class="edit-actions">
+                <button @click="saveEdit(task)" class="btn-icon save">
+                  <span>✓</span>
+                </button>
+                <button @click="cancelEdit" class="btn-icon cancel">
+                  <span>✕</span>
+                </button>
               </div>
             </div>
-            <div class="task-time">{{ task.display_date || formatDate(task.due_date) }}</div>
-            <div class="task-status" :class="task.status">{{ statusLabel(task.status) }}</div>
+            <div v-else @click="startEdit(task)" class="task-description">
+              {{ task.description }}
+              <span class="edit-hint">✏️</span>
+            </div>
           </div>
+
+          <div class="task-footer">
+            <div class="task-time">
+              <span class="time-icon">⏰</span>
+              {{ task.display_date || formatDate(task.due_date) }}
+            </div>
+          </div>
+
           <div class="task-actions">
-            <button @click="completeTask(task.id)" class="btn btn-complete">✓ Готово</button>
-            <button @click="cancelTask(task.id)" class="btn btn-cancel">✗ Отменить</button>
+            <button @click="completeTask(task.id)" class="btn btn-complete">
+              <span class="btn-icon-left">✓</span>
+              Готово
+            </button>
+            <button @click="cancelTask(task.id)" class="btn btn-cancel">
+              <span class="btn-icon-left">✕</span>
+              Отменить
+            </button>
           </div>
         </div>
       </div>
-      <div v-else class="feedback">Нет активных задач</div>
 
-      <!-- Divider -->
-      <div v-if="completedTasks.length" class="divider">
-        <span>Завершённые</span>
+      <div v-else class="empty-state">
+        <div class="empty-icon">📝</div>
+        <h3>Нет активных задач</h3>
+        <p>Отправьте боту сообщение, чтобы создать напоминание</p>
       </div>
 
-      <!-- Completed/Cancelled tasks -->
-      <div v-if="completedTasks.length" class="section completed-section">
-        <div v-for="task in completedTasks" :key="task.id" class="task-item inactive">
-          <div class="task-content">
+      <div v-if="completedTasks.length" class="completed-section">
+        <div class="section-divider">
+          <div class="divider-line"></div>
+          <span class="divider-text">Завершённые</span>
+          <div class="divider-line"></div>
+        </div>
+
+        <div v-for="task in completedTasks" :key="task.id" class="task-card completed">
+          <div class="task-header">
+            <div class="task-status-indicator" :class="task.status"></div>
+            <span class="task-status-text">{{ statusLabel(task.status) }}</span>
+          </div>
+          <div class="task-body">
             <div class="task-description strikethrough">{{ task.description }}</div>
-            <div class="task-time">{{ formatDate(task.due_date) }}</div>
-            <div class="task-status" :class="task.status">{{ statusLabel(task.status) }}</div>
+          </div>
+          <div class="task-footer">
+            <div class="task-time">
+              <span class="time-icon">⏰</span>
+              {{ formatDate(task.due_date) }}
+            </div>
           </div>
         </div>
       </div>
@@ -78,22 +122,22 @@ const editingText = ref('');
 
 const API_BASE = '/api';
 
-const activeTasks = computed(() => 
+const activeTasks = computed(() =>
   tasks.value.filter(t => t.status === 'created' || t.status === 'sent')
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
 );
 
-const completedTasks = computed(() => 
+const completedTasks = computed(() =>
   tasks.value.filter(t => t.status === 'completed' || t.status === 'cancelled')
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 );
 
 const statusLabel = (status: string) => {
   const labels: Record<string, string> = {
-    created: '⏳ Ожидает',
-    sent: '🔔 Отправлено',
-    completed: '✅ Выполнено',
-    cancelled: '❌ Отменено',
+    created: 'Ожидает',
+    sent: 'Отправлено',
+    completed: 'Выполнено',
+    cancelled: 'Отменено',
   };
   return labels[status] || status;
 };
@@ -101,10 +145,21 @@ const statusLabel = (status: string) => {
 const formatDate = (isoDate: string) => {
   if (!isoDate) return '';
   const date = new Date(isoDate);
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  const isToday = date.toDateString() === now.toDateString();
+  const isTomorrow = date.toDateString() === tomorrow.toDateString();
+
+  const time = date.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+  if (isToday) return `Сегодня, ${time}`;
+  if (isTomorrow) return `Завтра, ${time}`;
+
   return date.toLocaleString('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
+    day: 'numeric',
+    month: 'short',
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -116,7 +171,7 @@ const fetchTasks = async () => {
     loading.value = false;
     return;
   }
-  
+
   try {
     const response = await fetch(`${API_BASE}/tasks?telegram_id=${telegramUserId.value}`);
     if (!response.ok) throw new Error('Не удалось загрузить задачи');
@@ -136,7 +191,7 @@ const updateTaskStatus = async (id: number, status: string) => {
       body: JSON.stringify({ status }),
     });
     if (!response.ok) throw new Error('Не удалось обновить статус');
-    
+
     const taskIndex = tasks.value.findIndex(t => t.id === id);
     if (taskIndex !== -1) {
       tasks.value[taskIndex]!.status = status;
@@ -171,9 +226,9 @@ const saveEdit = async (task: Task) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description: editingText.value }),
     });
-    
+
     if (!response.ok) throw new Error('Не удалось сохранить изменения');
-    
+
     task.description = editingText.value;
     cancelEdit();
   } catch (e: any) {
@@ -187,8 +242,7 @@ onMounted(() => {
     window.Telegram.WebApp.expand();
     telegramUserId.value = window.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? null;
   }
-  
-  // For development without Telegram
+
   if (!telegramUserId.value) {
     const urlParams = new URLSearchParams(window.location.search);
     const testId = urlParams.get('telegram_id');
@@ -196,104 +250,253 @@ onMounted(() => {
       telegramUserId.value = parseInt(testId);
     }
   }
-  
+
   fetchTasks();
 });
 </script>
 
 <style scoped>
 .task-list-container {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  padding: 16px;
-  background-color: var(--tg-theme-bg-color, #1a1a2e);
-  color: var(--tg-theme-text-color, #eaeaea);
+  padding: 20px;
   min-height: 100vh;
 }
 
-.header {
+.page-header {
+  margin-bottom: 24px;
+  padding: 0 4px;
+}
+
+.header-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.header-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.loading-state,
+.error-state,
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
   text-align: center;
-  font-size: 24px;
-  font-weight: 600;
-  margin-bottom: 20px;
-  color: var(--tg-theme-text-color, #eaeaea);
 }
 
-.feedback {
-  text-align: center;
-  color: var(--tg-theme-hint-color, #888);
-  font-size: 16px;
-  padding: 40px 20px;
-}
-
-.error {
-  color: #ff6b6b;
-}
-
-.section {
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
   margin-bottom: 16px;
 }
 
-.task-item {
-  background: var(--tg-theme-secondary-bg-color, #2d2d44);
-  border-radius: 12px;
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-state p,
+.error-state p {
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.error-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.empty-state {
+  padding: 80px 20px;
+}
+
+.empty-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+  opacity: 0.8;
+}
+
+.empty-state h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.empty-state p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 240px;
+}
+
+.task-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 16px;
   margin-bottom: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
 }
 
-.task-item.inactive {
+.task-card:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+.task-card.completed {
   opacity: 0.6;
-  background: var(--tg-theme-secondary-bg-color, #252535);
 }
 
-.task-content {
+.task-card.completed:hover {
+  transform: none;
+}
+
+.task-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.task-status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.task-status-indicator.created {
+  background: var(--warning);
+  box-shadow: 0 0 8px var(--warning);
+}
+
+.task-status-indicator.sent {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.task-status-indicator.completed {
+  background: var(--success);
+}
+
+.task-status-indicator.cancelled {
+  background: var(--danger);
+}
+
+.task-status-text {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.task-body {
   margin-bottom: 12px;
 }
 
 .task-description {
   font-size: 16px;
   font-weight: 500;
-  margin-bottom: 6px;
-  color: var(--tg-theme-text-color, #eaeaea);
+  color: var(--text-primary);
+  line-height: 1.5;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .task-description.strikethrough {
   text-decoration: line-through;
   opacity: 0.7;
+  cursor: default;
+}
+
+.edit-hint {
+  opacity: 0;
+  transition: opacity 0.2s;
+  font-size: 14px;
+}
+
+.task-description:hover .edit-hint {
+  opacity: 0.5;
+}
+
+.edit-mode {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.edit-input {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent);
+  background: rgba(108, 92, 231, 0.1);
+  color: var(--text-primary);
+  font-size: 16px;
+  font-family: inherit;
+  outline: none;
+}
+
+.edit-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.edit-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.btn-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition: all 0.2s;
+}
+
+.btn-icon.save {
+  background: var(--success);
+  color: white;
+}
+
+.btn-icon.cancel {
+  background: var(--border);
+  color: var(--text-secondary);
+}
+
+.btn-icon:hover {
+  transform: scale(1.05);
+}
+
+.task-footer {
+  margin-bottom: 16px;
 }
 
 .task-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
-  color: var(--tg-theme-hint-color, #888);
-  margin-bottom: 4px;
+  color: var(--text-secondary);
 }
 
-.task-status {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 8px;
-  border-radius: 6px;
-  display: inline-block;
-}
-
-.task-status.created {
-  background-color: rgba(255, 193, 7, 0.2);
-  color: #ffc107;
-}
-
-.task-status.sent {
-  background-color: rgba(33, 150, 243, 0.2);
-  color: #2196f3;
-}
-
-.task-status.completed {
-  background-color: rgba(76, 175, 80, 0.2);
-  color: #4caf50;
-}
-
-.task-status.cancelled {
-  background-color: rgba(244, 67, 54, 0.2);
-  color: #f44336;
+.time-icon {
+  font-size: 14px;
 }
 
 .task-actions {
@@ -303,94 +506,75 @@ onMounted(() => {
 
 .btn {
   flex: 1;
-  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 16px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
+.btn-icon-left {
+  font-size: 16px;
+}
+
 .btn-complete {
-  background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+  background: linear-gradient(135deg, var(--success) 0%, #00b359 100%);
   color: white;
 }
 
 .btn-complete:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+  box-shadow: 0 6px 20px rgba(0, 210, 106, 0.35);
 }
 
 .btn-cancel {
-  background: linear-gradient(135deg, #f44336 0%, #c62828 100%);
-  color: white;
+  background: rgba(255, 71, 87, 0.15);
+  color: var(--danger);
+  border: 1px solid rgba(255, 71, 87, 0.3);
 }
 
 .btn-cancel:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+  background: var(--danger);
+  color: white;
+  border-color: transparent;
 }
 
-.divider {
+.completed-section {
+  margin-top: 32px;
+}
+
+.section-divider {
   display: flex;
   align-items: center;
-  margin: 24px 0 16px;
-  color: var(--tg-theme-hint-color, #666);
-  font-size: 13px;
+  gap: 16px;
+  margin-bottom: 20px;
 }
 
-.divider::before,
-.divider::after {
-  content: '';
+.divider-line {
   flex: 1;
   height: 1px;
-  background-color: var(--tg-theme-hint-color, #333);
+  background: var(--border);
 }
 
-.divider span {
-  padding: 0 12px;
+.divider-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
-.completed-section .task-item {
-  padding: 12px;
+.completed-section .task-card {
+  padding: 14px;
 }
 
 .completed-section .task-actions {
   display: none;
-}
-
-.edit-mode {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
-}
-
-.edit-input {
-  flex: 1;
-  padding: 8px;
-  border-radius: 6px;
-  border: 1px solid var(--tg-theme-hint-color, #888);
-  background: var(--tg-theme-bg-color, #fff);
-  color: var(--tg-theme-text-color, #000);
-}
-
-.btn-icon {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 16px;
-  padding: 4px;
-}
-
-.text-display {
-  cursor: pointer;
-  border-bottom: 1px dashed transparent;
-  transition: border-color 0.2s;
-}
-
-.text-display:hover {
-  border-bottom-color: var(--tg-theme-hint-color, #888);
 }
 </style>

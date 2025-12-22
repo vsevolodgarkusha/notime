@@ -401,6 +401,30 @@ async def respond_to_friend_request(
     return {"message": message}
 
 
+@app.delete("/api/friends/{friendship_id}")
+async def delete_friend(
+    friendship_id: int,
+    telegram_id: int,
+    db: Session = Depends(get_db)
+):
+    """Remove a friend (delete friendship)."""
+    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    friendship = db.query(models.Friendship).filter(
+        (models.Friendship.id == friendship_id) &
+        ((models.Friendship.from_user_id == user.id) | (models.Friendship.to_user_id == user.id))
+    ).first()
+
+    if not friendship:
+        raise HTTPException(status_code=404, detail="Дружба не найдена")
+
+    db.delete(friendship)
+    db.commit()
+    return {"message": "Друг удален"}
+
+
 # ==================== Google Calendar API ====================
 
 BOT_USERNAME = os.getenv("BOT_USERNAME", "notime_scheduler_bot")

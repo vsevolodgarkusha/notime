@@ -1,16 +1,17 @@
 import os
-import json
 import logging
 import hmac
 import hashlib
 import time
 from datetime import datetime
+from typing import Optional
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+# Use Google Tasks API (also include calendar for backwards compatibility with existing tokens)
+SCOPES = ['https://www.googleapis.com/auth/tasks', 'https://www.googleapis.com/auth/calendar']
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://bot.dzen.today/api/google/callback")
@@ -19,7 +20,7 @@ STATE_TTL = 600  # 10 minutes
 
 
 def is_configured() -> bool:
-    """Check if Google Calendar is properly configured."""
+    """Check if Google Tasks is properly configured."""
     return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 
 
@@ -41,7 +42,7 @@ def create_state(telegram_id: int) -> str:
     return f"{telegram_id}:{timestamp}:{signature}"
 
 
-def verify_state(state: str) -> int | None:
+def verify_state(state: str) -> Optional[int]:
     """Verify state and return telegram_id if valid."""
     try:
         parts = state.split(":")
@@ -52,12 +53,10 @@ def verify_state(state: str) -> int | None:
         timestamp = int(parts[1])
         signature = parts[2]
 
-        # Check expiration
         if time.time() - timestamp > STATE_TTL:
             logging.warning(f"State expired for telegram_id {telegram_id}")
             return None
 
-        # Verify signature
         expected_signature = _sign_state(telegram_id, timestamp)
         if not hmac.compare_digest(signature, expected_signature):
             logging.warning(f"Invalid state signature for telegram_id {telegram_id}")
@@ -70,7 +69,7 @@ def verify_state(state: str) -> int | None:
 
 
 def get_oauth_flow() -> Flow:
-    """Create OAuth flow for Google Calendar authorization."""
+    """Create OAuth flow for Google Tasks authorization."""
     client_config = {
         "web": {
             "client_id": GOOGLE_CLIENT_ID,
@@ -91,7 +90,6 @@ def get_authorization_url(telegram_id: int) -> str:
     flow = get_oauth_flow()
     authorization_url, _ = flow.authorization_url(
         access_type='offline',
-        include_granted_scopes='true',
         state=state,
         prompt='consent'
     )
@@ -125,97 +123,89 @@ def get_credentials_from_tokens(token_data: dict) -> Credentials:
     )
 
 
-def create_calendar_event(token_data: dict, title: str, due_date: datetime, task_id: int) -> str | None:
-    """Create a calendar event and return event ID."""
+def create_task(token_data: dict, title: str, due_date: datetime, task_id: int) -> Optional[str]:
+    """Create a Google Task and return task ID."""
     try:
         credentials = get_credentials_from_tokens(token_data)
-        service = build('calendar', 'v3', credentials=credentials)
+        service = build('tasks', 'v1', credentials=credentials)
 
-        event = {
-            'summary': title,
-            'description': f'Задача из бота напоминаний (ID: {task_id})',
-            'start': {
-                'dateTime': due_date.isoformat(),
-                'timeZone': 'UTC',
-            },
-            'end': {
-                'dateTime': due_date.isoformat(),
-                'timeZone': 'UTC',
-            },
-            'reminders': {
-                'useDefault': False,
-                'overrides': [
-                    {'method': 'popup', 'minutes': 0},
-                ],
-            },
+        task = {
+            'title': title,
+            'notes': f'Задача из бота напоминаний (ID: {task_id})',
+            'due': due_date.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
         }
 
-        created_event = service.events().insert(calendarId='primary', body=event).execute()
-        logging.info(f"Created Google Calendar event: {created_event.get('id')}")
-        return created_event.get('id')
+        created_task = service.tasks().insert(tasklist='@default', body=task).execute()
+        logging.info(f"Created Google Task: {created_task.get('id')}")
+        return created_task.get('id')
     except HttpError as e:
-        logging.error(f"Error creating calendar event: {e}")
+        logging.error(f"Error creating Google Task: {e}")
         return None
     except Exception as e:
-        logging.error(f"Unexpected error creating calendar event: {e}")
+        logging.error(f"Unexpected error creating Google Task: {e}")
         return None
 
 
-def update_calendar_event(token_data: dict, event_id: str, title: str, due_date: datetime) -> bool:
-    """Update an existing calendar event."""
+def update_task(token_data: dict, google_task_id: str, title: str, due_date: datetime) -> bool:
+    """Update an existing Google Task."""
     try:
         credentials = get_credentials_from_tokens(token_data)
-        service = build('calendar', 'v3', credentials=credentials)
+        service = build('tasks', 'v1', credentials=credentials)
 
-        event = service.events().get(calendarId='primary', eventId=event_id).execute()
-        event['summary'] = title
-        event['start'] = {'dateTime': due_date.isoformat(), 'timeZone': 'UTC'}
-        event['end'] = {'dateTime': due_date.isoformat(), 'timeZone': 'UTC'}
+        task = service.tasks().get(tasklist='@default', task=google_task_id).execute()
+        task['title'] = title
+        task['due'] = due_date.strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
-        service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
-        logging.info(f"Updated Google Calendar event: {event_id}")
+        service.tasks().update(tasklist='@default', task=google_task_id, body=task).execute()
+        logging.info(f"Updated Google Task: {google_task_id}")
         return True
     except HttpError as e:
-        logging.error(f"Error updating calendar event: {e}")
+        logging.error(f"Error updating Google Task: {e}")
         return False
     except Exception as e:
-        logging.error(f"Unexpected error updating calendar event: {e}")
+        logging.error(f"Unexpected error updating Google Task: {e}")
         return False
 
 
-def delete_calendar_event(token_data: dict, event_id: str) -> bool:
-    """Delete a calendar event."""
+def delete_task(token_data: dict, google_task_id: str) -> bool:
+    """Delete a Google Task."""
     try:
         credentials = get_credentials_from_tokens(token_data)
-        service = build('calendar', 'v3', credentials=credentials)
+        service = build('tasks', 'v1', credentials=credentials)
 
-        service.events().delete(calendarId='primary', eventId=event_id).execute()
-        logging.info(f"Deleted Google Calendar event: {event_id}")
+        service.tasks().delete(tasklist='@default', task=google_task_id).execute()
+        logging.info(f"Deleted Google Task: {google_task_id}")
         return True
     except HttpError as e:
-        logging.error(f"Error deleting calendar event: {e}")
+        logging.error(f"Error deleting Google Task: {e}")
         return False
     except Exception as e:
-        logging.error(f"Unexpected error deleting calendar event: {e}")
+        logging.error(f"Unexpected error deleting Google Task: {e}")
         return False
 
 
-def mark_event_completed(token_data: dict, event_id: str, title: str) -> bool:
-    """Mark event as completed by updating its title."""
+def complete_task(token_data: dict, google_task_id: str) -> bool:
+    """Mark a Google Task as completed."""
     try:
         credentials = get_credentials_from_tokens(token_data)
-        service = build('calendar', 'v3', credentials=credentials)
+        service = build('tasks', 'v1', credentials=credentials)
 
-        event = service.events().get(calendarId='primary', eventId=event_id).execute()
-        event['summary'] = f"✅ {title}"
-        event['colorId'] = '8'  # Gray color for completed
+        task = service.tasks().get(tasklist='@default', task=google_task_id).execute()
+        task['status'] = 'completed'
 
-        service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
-        logging.info(f"Marked Google Calendar event as completed: {event_id}")
+        service.tasks().update(tasklist='@default', task=google_task_id, body=task).execute()
+        logging.info(f"Marked Google Task as completed: {google_task_id}")
         return True
     except HttpError as e:
-        logging.error(f"Error marking event completed: {e}")
+        logging.error(f"Error completing Google Task: {e}")
         return False
     except Exception as e:
-        logging.error(f"Unexpected error marking event completed: {e}")
+        logging.error(f"Unexpected error completing Google Task: {e}")
         return False
+
+
+# Backwards compatibility aliases
+create_calendar_event = create_task
+update_calendar_event = update_task
+delete_calendar_event = delete_task
+mark_event_completed = lambda token_data, event_id, title: complete_task(token_data, event_id)

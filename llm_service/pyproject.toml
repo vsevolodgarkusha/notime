@@ -1,6 +1,6 @@
 [project]
 name = "llm_service"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
     "fastapi==0.124.4",
     "uvicorn==0.38.0",
@@ -10,5 +10,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-]
+gemini = ["google-generativeai>=0.8.6"]
+openai = ["openai>=1.0.0"]
+all = ["google-generativeai>=0.8.6", "openai>=1.0.0"]

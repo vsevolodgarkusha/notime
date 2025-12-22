@@ -10,7 +10,7 @@ from groq import Groq
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, MenuButtonWebApp, WebAppInfo
+from aiogram.types import Message, CallbackQuery, MenuButtonWebApp, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
 import redis.asyncio as redis
@@ -116,8 +116,6 @@ async def command_calendar_handler(message: Message) -> None:
             status_response.raise_for_status()
             status_data = status_response.json()
 
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
             if status_data.get("connected"):
                 # Already connected - offer to disconnect
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -200,7 +198,6 @@ async def command_add_friend_handler(message: Message) -> None:
                 to_user_id = data.get("to_user_id")
 
                 # Send notification to the target user
-                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [
                         InlineKeyboardButton(text="Принять", callback_data=f"friend_accept_{user_id}"),
@@ -493,8 +490,7 @@ async def handle_voice(message: Message, bot: Bot):
             response.raise_for_status()
 
     except Exception as e:
-        import traceback
-        logging.error(f"Error processing voice: {e}\n{traceback.format_exc()}")
+        logging.exception(f"Error processing voice: {e}")
         await processing_msg.edit_text(f"❌ Ошибка при обработке голосового сообщения: {e}")
 
 @dp.callback_query(F.data.startswith("complete_"))

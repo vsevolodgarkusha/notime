@@ -4,31 +4,33 @@ from dotenv import load_dotenv
 import os
 from groq import Groq
 import json
+from typing import Optional
 
 load_dotenv()
 
-if not os.getenv("GROQ_API_KEY"):
-    pass # Client will check or it might be set via env var automatically. But good to check.
-    # Actually Groq() checks it. 
-
 client = Groq()
-MODEL = "llama-3.3-70b-versatile"
+MODEL = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
+
 
 class ProcessRequest(BaseModel):
     text: str
     current_time: str
-    timezone: str | None = None
+    timezone: Optional[str] = None
+
 
 class TaskParams(BaseModel):
     iso_datetime: str
     text: str
 
-class TaskResponse(BaseModel):
-    task: str  # "notify" or "unknown"
-    params: TaskParams | None = None
-    error_message: str | None = None
 
-app = FastAPI()
+class TaskResponse(BaseModel):
+    task: str
+    params: Optional[TaskParams] = None
+    error_message: Optional[str] = None
+
+
+app = FastAPI(title="LLM Service", version="2.0.0")
+
 
 SYSTEM_PROMPT = """
 You are an intelligent assistant that analyzes user requests in Russian to schedule notifications.
@@ -67,15 +69,15 @@ Your goal is to extract the user's intent, the desired time for the notification
 Respond ONLY with a single, valid JSON object. Do not add any extra text or formatting like ` ```json `.
 """
 
+
 @app.post("/process", response_model=TaskResponse)
 async def process_text(request: ProcessRequest):
-    print(f"DEBUG: Input text: '{request.text}'")
     user_prompt = f"""
     User Request: "{request.text}"
     User Timezone: "{request.timezone or 'UTC'}"
     Current Time (UTC): "{request.current_time}"
     """
-    
+
     try:
         completion = client.chat.completions.create(
             model=MODEL,
@@ -86,39 +88,31 @@ async def process_text(request: ProcessRequest):
             response_format={"type": "json_object"},
             temperature=0.1
         )
-        
+
         content = completion.choices[0].message.content
-        print(f"DEBUG: LLM Response content: '{content}'") 
         if not content:
-             raise ValueError("Empty response from LLM")
-             
+            raise ValueError("Empty response from LLM")
+
         cleaned_content = content.replace("```json", "").replace("```", "").strip()
-        print(f"DEBUG: Cleaned content: '{cleaned_content}'")
-        
         data = json.loads(cleaned_content)
-        print(f"DEBUG: Parsed JSON: {data.keys()}")
 
         if "error" in data:
-            msg = str(data['error'])
-            print(f"DEBUG: Error in data: {msg}")
-            return TaskResponse(task="unknown", error_message=msg)
+            return TaskResponse(task="unknown", error_message=str(data['error']))
 
         if "iso_datetime" in data and "text" in data:
-            print("DEBUG: Valid notify task detected")
             task_params = TaskParams(
                 iso_datetime=data["iso_datetime"],
                 text=data["text"]
             )
             return TaskResponse(task="notify", params=task_params)
-        else:
-            msg = f"Missing keys. Found: {list(data.keys())}"
-            print(f"DEBUG: {msg}")
-            return TaskResponse(task="unknown", error_message=msg)
 
-    except (json.JSONDecodeError, Exception) as e:
-        print(f"Error processing model response: {e}")
-        # In production would log stack trace
-        raise HTTPException(status_code=500, detail="Failed to process the request with the language model.")
+        return TaskResponse(task="unknown", error_message=f"Missing keys. Found: {list(data.keys())}")
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Failed to parse LLM response as JSON.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LLM error: {str(e)}")
+
 
 if __name__ == "__main__":
     import uvicorn
