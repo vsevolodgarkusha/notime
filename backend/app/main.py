@@ -25,9 +25,20 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+# CORS origins: from env or defaults for dev
+cors_origins_env = os.getenv("CORS_ORIGINS", "")
+if cors_origins_env:
+    origins = [o.strip() for o in cors_origins_env.split(",")]
+else:
+    origins = [
+        "http://localhost",
+        "http://localhost:8080",
+        "http://localhost:5173",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

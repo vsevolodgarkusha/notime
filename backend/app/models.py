@@ -48,7 +48,10 @@ class Friendship(Base):
     id = Column(Integer, primary_key=True, index=True)
     from_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     to_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    status = Column(Enum(FriendshipStatus), default=FriendshipStatus.PENDING)
+    status = Column(
+        Enum(FriendshipStatus, values_callable=lambda obj: [e.value for e in obj]),
+        default=FriendshipStatus.PENDING
+    )
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -63,7 +66,10 @@ class Task(Base):
     description = Column(String)
     due_date = Column(DateTime)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    status = Column(Enum(TaskStatus), default=TaskStatus.CREATED)
+    status = Column(
+        Enum(TaskStatus, values_callable=lambda obj: [e.value for e in obj]),
+        default=TaskStatus.CREATED
+    )
     message_id = Column(BigInteger, nullable=True)
     chat_id = Column(BigInteger, nullable=True)
     google_calendar_event_id = Column(String, nullable=True)  # Google Calendar event ID
