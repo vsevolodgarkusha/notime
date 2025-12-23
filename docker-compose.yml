@@ -3,42 +3,36 @@ version: '3.8'
 services:
   redis:
     image: "redis:alpine"
-    ports:
-      - "6379:6379"
 
   postgres:
     image: postgres:13
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=dbname
-    ports:
-      - "5432:5432"
+      - POSTGRES_USER=${POSTGRES_USER:-notime}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - POSTGRES_DB=${POSTGRES_DB:-notime}
 
   llm-service:
     build: ./llm_service
-    ports:
-      - "8005:8000"
     environment:
       - PYTHONUNBUFFERED=1
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - LLM_INTERNAL_API_KEY=${LLM_INTERNAL_API_KEY:?LLM_INTERNAL_API_KEY is required}
 
   backend:
     build: ./backend
-    ports:
-      - "8001:8001"
     environment:
       - PYTHONUNBUFFERED=1
-      - BOT_TOKEN=${BOT_TOKEN}
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
-      - DATABASE_URL=postgresql://user:password@postgres/dbname
+      - BOT_TOKEN=${BOT_TOKEN:?BOT_TOKEN is required}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?INTERNAL_API_KEY is required}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - LLM_INTERNAL_API_KEY=${LLM_INTERNAL_API_KEY:?LLM_INTERNAL_API_KEY is required}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
-      - STATE_SECRET=${STATE_SECRET}
+      - STATE_SECRET=${STATE_SECRET:?STATE_SECRET is required}
       - BOT_USERNAME=${BOT_USERNAME}
       - CORS_ORIGINS=${CORS_ORIGINS:-}
     depends_on:
@@ -51,11 +45,12 @@ services:
     command: ["uv", "run", "celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
     environment:
       - PYTHONUNBUFFERED=1
-      - BOT_TOKEN=${BOT_TOKEN}
-      - DATABASE_URL=postgresql://user:password@postgres/dbname
+      - BOT_TOKEN=${BOT_TOKEN:?BOT_TOKEN is required}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - LLM_INTERNAL_API_KEY=${LLM_INTERNAL_API_KEY:?LLM_INTERNAL_API_KEY is required}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - STATE_SECRET=${STATE_SECRET}
+      - STATE_SECRET=${STATE_SECRET:?STATE_SECRET is required}
     depends_on:
       - redis
       - backend
@@ -67,7 +62,7 @@ services:
     command: ["uv", "run", "celery", "-A", "app.celery_app", "beat", "--loglevel=info"]
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql://user:password@postgres/dbname
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
     depends_on:
       - redis
       - celery-worker
@@ -82,8 +77,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - GROQ_API_KEY=${GROQ_API_KEY}
-      - BOT_TOKEN=${BOT_TOKEN}
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - BOT_TOKEN=${BOT_TOKEN:?BOT_TOKEN is required}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?INTERNAL_API_KEY is required}
       - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-http://localhost:8080}
       - WEBAPP_URL=${WEBAPP_URL:-http://localhost:8080}
     depends_on:
@@ -93,8 +88,6 @@ services:
 
   flower:
     image: mher/flower:2.0.1
-    ports:
-      - "5555:5555"
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-NoTime is a full-stack Telegram Mini App for intelligent task scheduling and reminder management with friend collaboration. Users send natural language messages (text/voice) to a Telegram bot, which uses LLM to parse tasks and schedule reminders.
+NoTime is a full-stack Telegram Mini App for intelligent task scheduling and reminder management. Users send natural language messages (text/voice) to a Telegram bot, which uses LLM to parse tasks and schedule reminders.
 
 **Website:** https://dzen.today
 
@@ -84,7 +84,6 @@ PostgreSQL    Redis      Celery
 ### Database Schema
 - **users**: telegram_id, timezone, google_calendar_token
 - **tasks**: user_id, description, due_date, status (created→scheduled→sent→completed/cancelled)
-- **friendships**: from_user_id, to_user_id, status (pending/accepted/rejected)
 
 ## Key Files
 
@@ -113,5 +112,9 @@ PostgreSQL    Redis      Celery
 ## Environment Variables
 
 Required in `.env` (not in Git):
-- `BOT_TOKEN`, `GROQ_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-- `DATABASE_URL`, `REDIS_HOST`, `PUBLIC_DOMAIN`, `WEBAPP_URL`
+- `BOT_TOKEN`, `INTERNAL_API_KEY`
+- `DATABASE_URL`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
+- `STATE_SECRET` (required for Google OAuth state signing)
+- `LLM_INTERNAL_API_KEY` (internal auth between backend ↔ llm_service)
+- `GROQ_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- `REDIS_HOST`, `PUBLIC_DOMAIN`, `WEBAPP_URL`

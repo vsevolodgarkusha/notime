@@ -1,35 +1,10 @@
 <script setup lang="ts">
 import { RouterView, RouterLink, useRoute } from 'vue-router'
-import { computed, ref, onMounted } from 'vue'
+import { computed } from 'vue'
 
 const route = useRoute()
 
 const isTasksActive = computed(() => route.path === '/tasks' || route.path === '/')
-const isFriendsActive = computed(() => route.path === '/friends')
-
-const hasFriends = ref(false)
-
-const getAuthHeaders = (): HeadersInit => {
-  const initData = window.Telegram?.WebApp?.initData
-  if (initData) {
-    return { 'Authorization': `tma ${initData}` }
-  }
-  return {}
-}
-
-onMounted(async () => {
-  try {
-    const response = await fetch('/api/friends/status', {
-      headers: getAuthHeaders()
-    })
-    if (response.ok) {
-      const data = await response.json()
-      hasFriends.value = data.has_friends
-    }
-  } catch (e) {
-    console.error('Failed to fetch friends status:', e)
-  }
-})
 </script>
 
 <template>
@@ -43,12 +18,6 @@ onMounted(async () => {
           <span class="nav-icon">📋</span>
         </div>
         <span class="nav-label">Задачи</span>
-      </RouterLink>
-      <RouterLink v-if="hasFriends" to="/friends" :class="['nav-item', { active: isFriendsActive }]">
-        <div class="nav-icon-wrapper">
-          <span class="nav-icon">👥</span>
-        </div>
-        <span class="nav-label">Друзья</span>
       </RouterLink>
     </nav>
   </div>

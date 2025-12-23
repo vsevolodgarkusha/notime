@@ -15,7 +15,9 @@ SCOPES = ['https://www.googleapis.com/auth/tasks', 'https://www.googleapis.com/a
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://bot.dzen.today/api/google/callback")
-STATE_SECRET = os.getenv("STATE_SECRET", "change-this-secret-in-production")
+STATE_SECRET = os.getenv("STATE_SECRET")
+if not STATE_SECRET:
+    raise RuntimeError("STATE_SECRET environment variable is required")
 STATE_TTL = 600  # 10 minutes
 
 
