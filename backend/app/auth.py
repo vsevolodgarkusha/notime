@@ -21,6 +21,12 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
 INIT_DATA_TTL = 86400  # 24 hours in seconds
 
+# Validate required environment variables at startup
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN environment variable is required")
+if not INTERNAL_API_KEY:
+    raise RuntimeError("INTERNAL_API_KEY environment variable is required")
+
 
 class TelegramUser(BaseModel):
     """Parsed Telegram user from initData."""
@@ -46,10 +52,6 @@ def validate_init_data(init_data: str) -> Optional[TelegramUser]:
     6. Compare computed_hash with received hash
     7. Check auth_date is not too old
     """
-    if not BOT_TOKEN:
-        logging.error("BOT_TOKEN not configured")
-        return None
-
     try:
         # Parse URL-encoded data
         parsed = parse_qs(init_data, keep_blank_values=True)
@@ -157,12 +159,6 @@ async def verify_internal_api_key(
     Expects Authorization header with Bearer token.
     Format: "Bearer <INTERNAL_API_KEY>"
     """
-    if not INTERNAL_API_KEY:
-        raise HTTPException(
-            status_code=500,
-            detail="INTERNAL_API_KEY not configured"
-        )
-
     if not authorization:
         raise HTTPException(
             status_code=401,
@@ -185,8 +181,6 @@ async def verify_internal_api_key(
 
 def _is_valid_internal_key(authorization: str) -> bool:
     """Check if authorization header contains valid INTERNAL_API_KEY."""
-    if not INTERNAL_API_KEY:
-        return False
     token = authorization
     if token.lower().startswith("bearer "):
         token = token[7:]
