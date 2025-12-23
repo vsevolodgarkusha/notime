@@ -187,50 +187,6 @@ def _is_valid_internal_key(authorization: str) -> bool:
     return hmac.compare_digest(token, INTERNAL_API_KEY)
 
 
-async def get_user_id_flexible(
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-    telegram_id: Optional[int] = Query(None)
-) -> int:
-    """
-    Flexible auth dependency that accepts BOTH:
-    1. Mini App: "tma <initData>" - extracts user ID from initData
-    2. Bot service: "Bearer <INTERNAL_API_KEY>" + telegram_id query param
-
-    Returns the authenticated user's telegram_id.
-    """
-    if not authorization:
-        raise HTTPException(
-            status_code=401,
-            detail="Authorization header required"
-        )
-
-    # Try Mini App auth first (tma prefix)
-    if authorization.lower().startswith("tma "):
-        init_data = authorization[4:]
-        user = validate_init_data(init_data)
-        if user:
-            return user.id
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired initData"
-        )
-
-    # Try internal API key auth
-    if _is_valid_internal_key(authorization):
-        if telegram_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail="telegram_id required for internal API calls"
-            )
-        return telegram_id
-
-    # Neither auth worked
-    raise HTTPException(
-        status_code=401,
-        detail="Invalid authorization"
-    )
-
-
 class AuthResult(BaseModel):
     """Result of flexible authentication."""
     telegram_id: int
@@ -238,21 +194,15 @@ class AuthResult(BaseModel):
     is_internal: bool = False
 
 
-async def get_auth_flexible(
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-    telegram_id: Optional[int] = Query(None),
-    telegram_username: Optional[str] = Query(None)
+def _parse_authorization(
+    authorization: str,
+    telegram_id: Optional[int],
+    telegram_username: Optional[str]
 ) -> AuthResult:
     """
-    Flexible auth that returns full auth info.
-    For endpoints that need user info from either source.
+    Internal helper to parse authorization and return AuthResult.
+    Handles both Mini App (tma) and internal API key authentication.
     """
-    if not authorization:
-        raise HTTPException(
-            status_code=401,
-            detail="Authorization header required"
-        )
-
     # Try Mini App auth first (tma prefix)
     if authorization.lower().startswith("tma "):
         init_data = authorization[4:]
@@ -286,3 +236,42 @@ async def get_auth_flexible(
         status_code=401,
         detail="Invalid authorization"
     )
+
+
+async def get_user_id_flexible(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    telegram_id: Optional[int] = Query(None)
+) -> int:
+    """
+    Flexible auth dependency that accepts BOTH:
+    1. Mini App: "tma <initData>" - extracts user ID from initData
+    2. Bot service: "Bearer <INTERNAL_API_KEY>" + telegram_id query param
+
+    Returns the authenticated user's telegram_id.
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header required"
+        )
+
+    result = _parse_authorization(authorization, telegram_id, None)
+    return result.telegram_id
+
+
+async def get_auth_flexible(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    telegram_id: Optional[int] = Query(None),
+    telegram_username: Optional[str] = Query(None)
+) -> AuthResult:
+    """
+    Flexible auth that returns full auth info.
+    For endpoints that need user info from either source.
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header required"
+        )
+
+    return _parse_authorization(authorization, telegram_id, telegram_username)

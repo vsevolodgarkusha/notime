@@ -27,6 +27,10 @@ INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
 VOICE_RATE_LIMIT_SECONDS = 60
 ADMIN_IDS = [143743387] # vsevolodg
 
+# Validate required environment variables at startup
+if not INTERNAL_API_KEY:
+    raise RuntimeError("INTERNAL_API_KEY environment variable is required")
+
 def get_backend_headers() -> dict:
     """Get headers for internal API calls."""
     return {"Authorization": f"Bearer {INTERNAL_API_KEY}"}

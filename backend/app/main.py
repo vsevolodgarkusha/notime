@@ -533,13 +533,12 @@ BOT_USERNAME = os.getenv("BOT_USERNAME", "notime_scheduler_bot")
 
 @app.get("/api/google/auth")
 async def google_auth(
-    telegram_id: int = Query(...),
+    user_id: int = Depends(get_user_id_flexible),
     db: Session = Depends(get_db)
 ):
     """
     Initiate Google OAuth flow.
     Generates signed state and redirects to Google OAuth.
-    Note: This is accessed via browser link, so no header auth possible.
     """
     # Check if Google Calendar is configured
     if not google_calendar.is_configured():
@@ -549,11 +548,11 @@ async def google_auth(
         )
 
     # Verify user exists
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    user = db.query(models.User).filter(models.User.telegram_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден. Сначала отправьте /start боту.")
 
-    auth_url = google_calendar.get_authorization_url(telegram_id)
+    auth_url = google_calendar.get_authorization_url(user_id)
     return RedirectResponse(url=auth_url)
 
 
