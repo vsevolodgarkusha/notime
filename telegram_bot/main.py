@@ -23,8 +23,13 @@ REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8001")
 PUBLIC_DOMAIN = os.getenv("PUBLIC_DOMAIN", "https://bot.dzen.today")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://bot.dzen.today")
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
 VOICE_RATE_LIMIT_SECONDS = 60
 ADMIN_IDS = [143743387] # vsevolodg
+
+def get_backend_headers() -> dict:
+    """Get headers for internal API calls."""
+    return {"Authorization": f"Bearer {INTERNAL_API_KEY}"}
 
 redis_client = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
 tf = TimezoneFinder()
@@ -46,10 +51,8 @@ async def command_start_handler(message: Message) -> None:
         try:
             await client.post(
                 f"{BACKEND_URL}/api/users/register",
-                json={
-                    "telegram_id": user_id,
-                    "telegram_username": username
-                }
+                params={"telegram_id": user_id, "telegram_username": username},
+                headers=get_backend_headers()
             )
         except Exception as e:
             logging.error(f"Error registering user: {e}")
@@ -116,7 +119,8 @@ async def command_calendar_handler(message: Message) -> None:
             # Check current connection status
             status_response = await client.get(
                 f"{BACKEND_URL}/api/google/status",
-                params={"telegram_id": user_id}
+                params={"telegram_id": user_id},
+                headers=get_backend_headers()
             )
             status_response.raise_for_status()
             status_data = status_response.json()
@@ -163,7 +167,8 @@ async def handle_disconnect_calendar(callback: CallbackQuery):
         try:
             response = await client.delete(
                 f"{BACKEND_URL}/api/google/disconnect",
-                params={"telegram_id": user_id}
+                params={"telegram_id": user_id},
+                headers=get_backend_headers()
             )
             response.raise_for_status()
 
@@ -195,7 +200,8 @@ async def command_add_friend_handler(message: Message) -> None:
             response = await client.post(
                 f"{BACKEND_URL}/api/friends/request",
                 params={"telegram_id": user_id},
-                json={"friend_identifier": friend_identifier}
+                json={"friend_identifier": friend_identifier},
+                headers=get_backend_headers()
             )
 
             if response.status_code == 200:
@@ -242,7 +248,8 @@ async def handle_friend_accept(callback: CallbackQuery):
             # Get the pending request
             requests_response = await client.get(
                 f"{BACKEND_URL}/api/friends/requests",
-                params={"telegram_id": to_user_id}
+                params={"telegram_id": to_user_id},
+                headers=get_backend_headers()
             )
             requests_response.raise_for_status()
             requests = requests_response.json()
@@ -262,7 +269,8 @@ async def handle_friend_accept(callback: CallbackQuery):
             response = await client.post(
                 f"{BACKEND_URL}/api/friends/requests/{request_id}/respond",
                 params={"telegram_id": to_user_id},
-                json={"action": "accept"}
+                json={"action": "accept"},
+                headers=get_backend_headers()
             )
             response.raise_for_status()
 
@@ -293,7 +301,8 @@ async def handle_friend_reject(callback: CallbackQuery):
             # Get the pending request
             requests_response = await client.get(
                 f"{BACKEND_URL}/api/friends/requests",
-                params={"telegram_id": to_user_id}
+                params={"telegram_id": to_user_id},
+                headers=get_backend_headers()
             )
             requests_response.raise_for_status()
             requests = requests_response.json()
@@ -313,7 +322,8 @@ async def handle_friend_reject(callback: CallbackQuery):
             response = await client.post(
                 f"{BACKEND_URL}/api/friends/requests/{request_id}/respond",
                 params={"telegram_id": to_user_id},
-                json={"action": "reject"}
+                json={"action": "reject"},
+                headers=get_backend_headers()
             )
             response.raise_for_status()
 
@@ -375,7 +385,11 @@ async def process_message(message: Message) -> None:
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            response = await client.post(f"{BACKEND_URL}/api/process-async", json=payload)
+            response = await client.post(
+                f"{BACKEND_URL}/api/process-async",
+                json=payload,
+                headers=get_backend_headers()
+            )
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             logging.error(f"HTTP error: {e}")
@@ -392,7 +406,9 @@ async def handle_cancel_callback(callback: CallbackQuery):
         try:
             response = await client.patch(
                 f"{BACKEND_URL}/api/tasks/{task_id}",
-                json={"status": "cancelled"}
+                params={"telegram_id": callback.from_user.id},
+                json={"status": "cancelled"},
+                headers=get_backend_headers()
             )
             response.raise_for_status()
 
@@ -412,17 +428,23 @@ async def handle_snooze_callback(callback: CallbackQuery):
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            get_response = await client.get(f"{BACKEND_URL}/api/tasks/{task_id}")
+            get_response = await client.get(
+                f"{BACKEND_URL}/api/tasks/{task_id}",
+                params={"telegram_id": callback.from_user.id},
+                headers=get_backend_headers()
+            )
             get_response.raise_for_status()
 
             new_due_date = datetime.now(timezone.utc) + timedelta(minutes=minutes)
 
             patch_response = await client.patch(
                 f"{BACKEND_URL}/api/tasks/{task_id}",
+                params={"telegram_id": callback.from_user.id},
                 json={
                     "status": "created", # Reschedule the task
                     "due_date": new_due_date.isoformat()
-                }
+                },
+                headers=get_backend_headers()
             )
             patch_response.raise_for_status()
 
@@ -493,7 +515,11 @@ async def handle_voice(message: Message, bot: Bot):
         }
 
         async with httpx.AsyncClient(timeout=10.0) as http_client:
-            response = await http_client.post(f"{BACKEND_URL}/api/process-async", json=payload)
+            response = await http_client.post(
+                f"{BACKEND_URL}/api/process-async",
+                json=payload,
+                headers=get_backend_headers()
+            )
             response.raise_for_status()
 
     except Exception as e:
@@ -508,7 +534,9 @@ async def handle_complete_callback(callback: CallbackQuery):
         try:
             response = await client.patch(
                 f"{BACKEND_URL}/api/tasks/{task_id}",
-                json={"status": "completed"}
+                params={"telegram_id": callback.from_user.id},
+                json={"status": "completed"},
+                headers=get_backend_headers()
             )
             response.raise_for_status()
 

@@ -125,10 +125,20 @@ const friends = ref<Friend[]>([]);
 const requests = ref<FriendRequest[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
-const telegramUserId = ref<number | null>(null);
 const activeTab = ref<'friends' | 'requests'>('friends');
 
 const API_BASE = '/api';
+
+const getAuthHeaders = (): HeadersInit => {
+  const initData = window.Telegram?.WebApp?.initData;
+  if (initData) {
+    return {
+      'Authorization': `tma ${initData}`,
+      'Content-Type': 'application/json'
+    };
+  }
+  return { 'Content-Type': 'application/json' };
+};
 
 const pendingCount = computed(() =>
   requests.value.filter(r => r.status === 'pending').length
@@ -149,10 +159,10 @@ const getInitials = (name: string) => {
 };
 
 const fetchFriends = async () => {
-  if (!telegramUserId.value) return;
-
   try {
-    const response = await fetch(`${API_BASE}/friends?telegram_id=${telegramUserId.value}`);
+    const response = await fetch(`${API_BASE}/friends`, {
+      headers: getAuthHeaders()
+    });
     if (!response.ok) throw new Error('Не удалось загрузить друзей');
     friends.value = await response.json();
   } catch (e: any) {
@@ -161,10 +171,10 @@ const fetchFriends = async () => {
 };
 
 const fetchRequests = async () => {
-  if (!telegramUserId.value) return;
-
   try {
-    const response = await fetch(`${API_BASE}/friends/requests?telegram_id=${telegramUserId.value}`);
+    const response = await fetch(`${API_BASE}/friends/requests`, {
+      headers: getAuthHeaders()
+    });
     if (!response.ok) throw new Error('Не удалось загрузить запросы');
     requests.value = await response.json();
   } catch (e: any) {
@@ -173,14 +183,12 @@ const fetchRequests = async () => {
 };
 
 const respondToRequest = async (requestId: number, action: 'accept' | 'reject') => {
-  if (!telegramUserId.value) return;
-
   try {
     const response = await fetch(
-      `${API_BASE}/friends/requests/${requestId}/respond?telegram_id=${telegramUserId.value}`,
+      `${API_BASE}/friends/requests/${requestId}/respond`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ action }),
       }
     );
@@ -195,12 +203,13 @@ const respondToRequest = async (requestId: number, action: 'accept' | 'reject') 
 };
 
 const deleteFriend = async (friendshipId: number) => {
-  if (!telegramUserId.value) return;
-
   try {
     const response = await fetch(
-      `${API_BASE}/friends/${friendshipId}?telegram_id=${telegramUserId.value}`,
-      { method: 'DELETE' }
+      `${API_BASE}/friends/${friendshipId}`,
+      {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      }
     );
 
     if (!response.ok) throw new Error('Не удалось удалить друга');
@@ -215,21 +224,6 @@ onMounted(async () => {
   if (window.Telegram?.WebApp) {
     window.Telegram.WebApp.ready();
     window.Telegram.WebApp.expand();
-    telegramUserId.value = window.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? null;
-  }
-
-  if (!telegramUserId.value) {
-    const urlParams = new URLSearchParams(window.location.search);
-    const testId = urlParams.get('telegram_id');
-    if (testId) {
-      telegramUserId.value = parseInt(testId);
-    }
-  }
-
-  if (!telegramUserId.value) {
-    error.value = 'Не удалось получить ID пользователя';
-    loading.value = false;
-    return;
   }
 
   await Promise.all([fetchFriends(), fetchRequests()]);

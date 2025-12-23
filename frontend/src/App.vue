@@ -9,31 +9,25 @@ const isFriendsActive = computed(() => route.path === '/friends')
 
 const hasFriends = ref(false)
 
+const getAuthHeaders = (): HeadersInit => {
+  const initData = window.Telegram?.WebApp?.initData
+  if (initData) {
+    return { 'Authorization': `tma ${initData}` }
+  }
+  return {}
+}
+
 onMounted(async () => {
-  let telegramUserId: number | null = null
-
-  if (window.Telegram?.WebApp) {
-    telegramUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? null
-  }
-
-  if (!telegramUserId) {
-    const urlParams = new URLSearchParams(window.location.search)
-    const testId = urlParams.get('telegram_id')
-    if (testId) {
-      telegramUserId = parseInt(testId)
+  try {
+    const response = await fetch('/api/friends/status', {
+      headers: getAuthHeaders()
+    })
+    if (response.ok) {
+      const data = await response.json()
+      hasFriends.value = data.has_friends
     }
-  }
-
-  if (telegramUserId) {
-    try {
-      const response = await fetch(`/api/friends/status?telegram_id=${telegramUserId}`)
-      if (response.ok) {
-        const data = await response.json()
-        hasFriends.value = data.has_friends
-      }
-    } catch (e) {
-      console.error('Failed to fetch friends status:', e)
-    }
+  } catch (e) {
+    console.error('Failed to fetch friends status:', e)
   }
 })
 </script>

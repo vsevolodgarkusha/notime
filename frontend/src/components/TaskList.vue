@@ -115,12 +115,22 @@ interface Task {
 const tasks = ref<Task[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
-const telegramUserId = ref<number | null>(null);
 
 const editingTaskId = ref<number | null>(null);
 const editingText = ref('');
 
 const API_BASE = '/api';
+
+const getAuthHeaders = (): HeadersInit => {
+  const initData = window.Telegram?.WebApp?.initData;
+  if (initData) {
+    return {
+      'Authorization': `tma ${initData}`,
+      'Content-Type': 'application/json'
+    };
+  }
+  return { 'Content-Type': 'application/json' };
+};
 
 const activeTasks = computed(() =>
   tasks.value.filter(t => t.status === 'created' || t.status === 'scheduled' || t.status === 'sent')
@@ -167,14 +177,15 @@ const formatDate = (isoDate: string) => {
 };
 
 const fetchTasks = async () => {
-  if (!telegramUserId.value) {
-    error.value = 'Не удалось получить ID пользователя';
-    loading.value = false;
-    return;
-  }
-
   try {
-    const response = await fetch(`${API_BASE}/tasks?telegram_id=${telegramUserId.value}`);
+    const response = await fetch(`${API_BASE}/tasks`, {
+      headers: getAuthHeaders()
+    });
+    if (response.status === 401) {
+      error.value = 'Ошибка авторизации';
+      loading.value = false;
+      return;
+    }
     if (!response.ok) throw new Error('Не удалось загрузить задачи');
     tasks.value = await response.json();
   } catch (e: any) {
@@ -188,7 +199,7 @@ const updateTaskStatus = async (id: number, status: string) => {
   try {
     const response = await fetch(`${API_BASE}/tasks/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ status }),
     });
     if (!response.ok) throw new Error('Не удалось обновить статус');
@@ -224,7 +235,7 @@ const saveEdit = async (task: Task) => {
   try {
     const response = await fetch(`${API_BASE}/tasks/${task.id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ description: editingText.value }),
     });
 
@@ -241,15 +252,6 @@ onMounted(() => {
   if (window.Telegram?.WebApp) {
     window.Telegram.WebApp.ready();
     window.Telegram.WebApp.expand();
-    telegramUserId.value = window.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? null;
-  }
-
-  if (!telegramUserId.value) {
-    const urlParams = new URLSearchParams(window.location.search);
-    const testId = urlParams.get('telegram_id');
-    if (testId) {
-      telegramUserId.value = parseInt(testId);
-    }
   }
 
   fetchTasks();

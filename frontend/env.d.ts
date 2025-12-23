@@ -5,6 +5,7 @@ interface Window {
     WebApp?: {
       ready: () => void;
       expand: () => void;
+      initData?: string;
       initDataUnsafe?: {
         user?: {
           id: number;

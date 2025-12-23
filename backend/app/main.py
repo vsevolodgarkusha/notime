@@ -14,6 +14,7 @@ from .db import SessionLocal, engine
 from .models import TaskStatus, FriendshipStatus
 from .utils import format_user_time
 from . import google_calendar
+from .auth import TelegramUser, get_telegram_user, verify_internal_api_key, get_user_id_flexible, get_auth_flexible, AuthResult
 
 load_dotenv()
 
@@ -112,21 +113,29 @@ def get_db():
         db_session.close()
 
 @app.post("/api/users/register")
-async def register_user(user: UserRegister, db: Session = Depends(get_db)):
-    """Register or update user in database."""
-    existing_user = db.query(models.User).filter(models.User.telegram_id == user.telegram_id).first()
+async def register_user(
+    auth: AuthResult = Depends(get_auth_flexible),
+    db: Session = Depends(get_db)
+):
+    """
+    Register or update user in database.
+    Accepts either:
+    - Mini App: Authorization: tma <initData>
+    - Bot: Authorization: Bearer <INTERNAL_API_KEY> + telegram_id query param
+    """
+    existing_user = db.query(models.User).filter(models.User.telegram_id == auth.telegram_id).first()
 
     if existing_user:
         # Update username if changed
-        if user.telegram_username and existing_user.telegram_username != user.telegram_username:
-            existing_user.telegram_username = user.telegram_username
+        if auth.username and existing_user.telegram_username != auth.username:
+            existing_user.telegram_username = auth.username
             db.commit()
         return {"message": "User updated", "user_id": existing_user.id}
 
     # Create new user
     new_user = models.User(
-        telegram_id=user.telegram_id,
-        telegram_username=user.telegram_username
+        telegram_id=auth.telegram_id,
+        telegram_username=auth.username
     )
     db.add(new_user)
     db.commit()
@@ -136,7 +145,11 @@ async def register_user(user: UserRegister, db: Session = Depends(get_db)):
 
 
 @app.post("/schedule")
-async def schedule_task(task: TaskSchedule, db: Session = Depends(get_db)):
+async def schedule_task(
+    task: TaskSchedule,
+    _: bool = Depends(verify_internal_api_key),
+    db: Session = Depends(get_db)
+):
     logging.info(f"Received task: {task} for telegram_id: {task.telegram_id}")
 
     user = db.query(models.User).filter(models.User.telegram_id == task.telegram_id).first()
@@ -173,7 +186,10 @@ async def schedule_task(task: TaskSchedule, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Неверный формат даты.")
 
 @app.post("/api/process-async")
-async def process_async(request: ProcessRequest):
+async def process_async(
+    request: ProcessRequest,
+    _: bool = Depends(verify_internal_api_key)
+):
     from .tasks import process_llm_request
     process_llm_request.delay(
         telegram_id=request.telegram_id,
@@ -186,13 +202,16 @@ async def process_async(request: ProcessRequest):
     return {"message": "Запрос принят в обработку"}
 
 @app.get("/api/tasks", response_model=List[TaskResponse])
-async def get_tasks(telegram_id: int, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+async def get_tasks(
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db)
+):
+    user = db.query(models.User).filter(models.User.telegram_id == tg_user.id).first()
     if not user:
         return []
-    
+
     tasks = db.query(models.Task).filter(models.Task.user_id == user.id).order_by(models.Task.due_date.desc()).all()
-    
+
     return [
         TaskResponse(
             id=t.id,
@@ -206,10 +225,18 @@ async def get_tasks(telegram_id: int, db: Session = Depends(get_db)):
     ]
 
 @app.get("/api/tasks/{task_id}", response_model=TaskResponse)
-async def get_task(task_id: int, db: Session = Depends(get_db)):
+async def get_task(
+    task_id: int,
+    user_id: int = Depends(get_user_id_flexible),
+    db: Session = Depends(get_db)
+):
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Задача не найдена")
+
+    # Verify ownership
+    if task.user.telegram_id != user_id:
+        raise HTTPException(status_code=403, detail="Доступ запрещен")
 
     user = task.user
     return TaskResponse(
@@ -222,10 +249,19 @@ async def get_task(task_id: int, db: Session = Depends(get_db)):
     )
 
 @app.patch("/api/tasks/{task_id}")
-async def update_task(task_id: int, update: TaskUpdate, db: Session = Depends(get_db)):
+async def update_task(
+    task_id: int,
+    update: TaskUpdate,
+    user_id: int = Depends(get_user_id_flexible),
+    db: Session = Depends(get_db)
+):
     task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Задача не найдена")
+
+    # Verify ownership
+    if task.user.telegram_id != user_id:
+        raise HTTPException(status_code=403, detail="Доступ запрещен")
 
     old_status = task.status
 
@@ -301,13 +337,13 @@ async def update_task(task_id: int, update: TaskUpdate, db: Session = Depends(ge
 
 @app.post("/api/friends/request")
 async def send_friend_request(
-    telegram_id: int,
     request: FriendRequest,
+    user_id: int = Depends(get_user_id_flexible),
     db: Session = Depends(get_db)
 ):
     """Send a friend request to another user."""
     # Get current user
-    from_user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    from_user = db.query(models.User).filter(models.User.telegram_id == user_id).first()
     if not from_user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
@@ -359,9 +395,12 @@ async def send_friend_request(
 
 
 @app.get("/api/friends", response_model=List[FriendResponse])
-async def get_friends(telegram_id: int, db: Session = Depends(get_db)):
+async def get_friends(
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db)
+):
     """Get list of friends for a user."""
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    user = db.query(models.User).filter(models.User.telegram_id == tg_user.id).first()
     if not user:
         return []
 
@@ -385,9 +424,12 @@ async def get_friends(telegram_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/friends/status")
-async def get_friends_status(telegram_id: int, db: Session = Depends(get_db)):
+async def get_friends_status(
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db)
+):
     """Check if user has any friends (for showing/hiding friends tab)."""
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    user = db.query(models.User).filter(models.User.telegram_id == tg_user.id).first()
     if not user:
         return {"has_friends": False}
 
@@ -400,9 +442,12 @@ async def get_friends_status(telegram_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/friends/requests", response_model=List[FriendRequestInfo])
-async def get_friend_requests(telegram_id: int, db: Session = Depends(get_db)):
+async def get_friend_requests(
+    user_id: int = Depends(get_user_id_flexible),
+    db: Session = Depends(get_db)
+):
     """Get incoming friend requests for a user."""
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    user = db.query(models.User).filter(models.User.telegram_id == user_id).first()
     if not user:
         return []
 
@@ -427,12 +472,12 @@ async def get_friend_requests(telegram_id: int, db: Session = Depends(get_db)):
 @app.post("/api/friends/requests/{request_id}/respond")
 async def respond_to_friend_request(
     request_id: int,
-    telegram_id: int,
     response: FriendRequestResponse,
+    user_id: int = Depends(get_user_id_flexible),
     db: Session = Depends(get_db)
 ):
     """Accept or reject a friend request."""
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    user = db.query(models.User).filter(models.User.telegram_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
@@ -460,11 +505,11 @@ async def respond_to_friend_request(
 @app.delete("/api/friends/{friendship_id}")
 async def delete_friend(
     friendship_id: int,
-    telegram_id: int,
+    tg_user: TelegramUser = Depends(get_telegram_user),
     db: Session = Depends(get_db)
 ):
     """Remove a friend (delete friendship)."""
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    user = db.query(models.User).filter(models.User.telegram_id == tg_user.id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
@@ -487,10 +532,14 @@ BOT_USERNAME = os.getenv("BOT_USERNAME", "notime_scheduler_bot")
 
 
 @app.get("/api/google/auth")
-async def google_auth(telegram_id: int, db: Session = Depends(get_db)):
+async def google_auth(
+    telegram_id: int = Query(...),
+    db: Session = Depends(get_db)
+):
     """
     Initiate Google OAuth flow.
     Generates signed state and redirects to Google OAuth.
+    Note: This is accessed via browser link, so no header auth possible.
     """
     # Check if Google Calendar is configured
     if not google_calendar.is_configured():
@@ -552,18 +601,24 @@ async def google_callback(
 
 
 @app.get("/api/google/status")
-async def google_status(telegram_id: int, db: Session = Depends(get_db)):
+async def google_status(
+    user_id: int = Depends(get_user_id_flexible),
+    db: Session = Depends(get_db)
+):
     """Check if user has connected Google Calendar."""
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    user = db.query(models.User).filter(models.User.telegram_id == user_id).first()
     if not user:
         return {"connected": False}
     return {"connected": user.google_calendar_token is not None}
 
 
 @app.delete("/api/google/disconnect")
-async def google_disconnect(telegram_id: int, db: Session = Depends(get_db)):
+async def google_disconnect(
+    user_id: int = Depends(get_user_id_flexible),
+    db: Session = Depends(get_db)
+):
     """Disconnect Google Calendar for a user."""
-    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    user = db.query(models.User).filter(models.User.telegram_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
