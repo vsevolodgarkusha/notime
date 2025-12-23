@@ -71,9 +71,6 @@ async def command_start_handler(message: Message) -> None:
         "Сначала настрой часовой пояс:\n"
         "• /timezone Europe/Moscow — вручную\n"
         "• /autotimezone — автоматически по геолокации\n\n"
-        "Дополнительно:\n"
-        "• /calendar — подключить Google Calendar\n"
-        "• /add_friend — добавить друга\n\n"
         "Затем просто напиши мне, о чём напомнить!\n"
         "Например: «Напомни через час позвонить маме»"
     )
