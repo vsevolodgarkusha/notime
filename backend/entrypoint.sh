@@ -8,9 +8,7 @@ done
 echo "Database is ready!"
 
 echo "Running database migrations..."
-if ! uv run alembic upgrade head; then
-  echo "Migration failed, but continuing..."
-fi
+uv run alembic upgrade head
 
 echo "Starting application..."
 exec "$@"

@@ -48,14 +48,13 @@ def get_location_keyboard():
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
     user_id = message.from_user.id
-    username = message.from_user.username
 
     # Register user in database
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             await client.post(
                 f"{BACKEND_URL}/api/users/register",
-                params={"telegram_id": user_id, "telegram_username": username},
+                params={"telegram_id": user_id},
                 headers=get_backend_headers()
             )
         except Exception as e:
@@ -180,160 +179,6 @@ async def handle_disconnect_calendar(callback: CallbackQuery):
             await callback.answer("Ошибка при отключении", show_alert=True)
 
 
-@dp.message(Command("add_friend"))
-async def command_add_friend_handler(message: Message) -> None:
-    user_id = message.from_user.id
-    args = message.text.split(maxsplit=1)
-
-    if len(args) < 2:
-        await message.answer(
-            "Укажите ID или username друга.\n\n"
-            "Примеры:\n"
-            "• /add_friend 123456789\n"
-            "• /add_friend @username"
-        )
-        return
-
-    friend_identifier = args[1].strip()
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            response = await client.post(
-                f"{BACKEND_URL}/api/friends/request",
-                params={"telegram_id": user_id},
-                json={"friend_identifier": friend_identifier},
-                headers=get_backend_headers()
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                to_user_id = data.get("to_user_id")
-
-                # Send notification to the target user
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="Принять", callback_data=f"friend_accept_{user_id}"),
-                        InlineKeyboardButton(text="Отклонить", callback_data=f"friend_reject_{user_id}")
-                    ]
-                ])
-
-                username = message.from_user.username or ""
-                display_name = f"@{username}" if username else str(user_id)
-
-                try:
-                    bot = message.bot
-                    await bot.send_message(
-                        chat_id=to_user_id,
-                        text=f"Новый запрос на дружбу от {display_name}",
-                        reply_markup=keyboard
-                    )
-                except Exception as e:
-                    logging.error(f"Could not send notification: {e}")
-
-                await message.answer("Запрос на дружбу отправлен!")
-            else:
-                error_detail = response.json().get("detail", "Неизвестная ошибка")
-                await message.answer(f"Ошибка: {error_detail}")
-        except Exception as e:
-            logging.error(f"Error sending friend request: {e}")
-            await message.answer("Ошибка при отправке запроса")
-
-
-@dp.callback_query(F.data.startswith("friend_accept_"))
-async def handle_friend_accept(callback: CallbackQuery):
-    from_user_id = int(callback.data.split("_")[2])
-    to_user_id = callback.from_user.id
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            # Get the pending request
-            requests_response = await client.get(
-                f"{BACKEND_URL}/api/friends/requests",
-                params={"telegram_id": to_user_id},
-                headers=get_backend_headers()
-            )
-            requests_response.raise_for_status()
-            requests = requests_response.json()
-
-            # Find the request from this user
-            request_id = None
-            for r in requests:
-                if r["from_user_telegram_id"] == from_user_id and r["status"] == "pending":
-                    request_id = r["id"]
-                    break
-
-            if not request_id:
-                await callback.answer("Запрос не найден", show_alert=True)
-                return
-
-            # Accept the request
-            response = await client.post(
-                f"{BACKEND_URL}/api/friends/requests/{request_id}/respond",
-                params={"telegram_id": to_user_id},
-                json={"action": "accept"},
-                headers=get_backend_headers()
-            )
-            response.raise_for_status()
-
-            await callback.message.edit_text("Запрос на дружбу принят!")
-            await callback.answer("Принято")
-
-            # Notify the sender
-            try:
-                bot = callback.message.bot
-                await bot.send_message(
-                    chat_id=from_user_id,
-                    text=f"Ваш запрос на дружбу принят!"
-                )
-            except Exception as e:
-                logging.error(f"Could not notify sender: {e}")
-        except Exception as e:
-            logging.error(f"Error accepting friend request: {e}")
-            await callback.answer("Ошибка", show_alert=True)
-
-
-@dp.callback_query(F.data.startswith("friend_reject_"))
-async def handle_friend_reject(callback: CallbackQuery):
-    from_user_id = int(callback.data.split("_")[2])
-    to_user_id = callback.from_user.id
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            # Get the pending request
-            requests_response = await client.get(
-                f"{BACKEND_URL}/api/friends/requests",
-                params={"telegram_id": to_user_id},
-                headers=get_backend_headers()
-            )
-            requests_response.raise_for_status()
-            requests = requests_response.json()
-
-            # Find the request from this user
-            request_id = None
-            for r in requests:
-                if r["from_user_telegram_id"] == from_user_id and r["status"] == "pending":
-                    request_id = r["id"]
-                    break
-
-            if not request_id:
-                await callback.answer("Запрос не найден", show_alert=True)
-                return
-
-            # Reject the request
-            response = await client.post(
-                f"{BACKEND_URL}/api/friends/requests/{request_id}/respond",
-                params={"telegram_id": to_user_id},
-                json={"action": "reject"},
-                headers=get_backend_headers()
-            )
-            response.raise_for_status()
-
-            await callback.message.edit_text("Запрос на дружбу отклонен.")
-            await callback.answer("Отклонено")
-        except Exception as e:
-            logging.error(f"Error rejecting friend request: {e}")
-            await callback.answer("Ошибка", show_alert=True)
-
 
 @dp.message(F.location)
 async def handle_location(message: Message):
@@ -360,7 +205,6 @@ async def process_message(message: Message) -> None:
     user_id = message.from_user.id
     chat_id = message.chat.id
     text = message.text
-    username = message.from_user.username
 
     if text.startswith("/"):
         return
@@ -381,7 +225,6 @@ async def process_message(message: Message) -> None:
         "message_id": processing_msg.message_id,
         "text": text,
         "timezone": user_timezone,
-        "username": username,
     }
 
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -525,7 +368,7 @@ async def handle_voice(message: Message, bot: Bot):
 
     except Exception as e:
         logging.exception(f"Error processing voice: {e}")
-        await processing_msg.edit_text(f"❌ Ошибка при обработке голосового сообщения: {e}")
+        await processing_msg.edit_text("❌ Ошибка при обработке голосового сообщения.")
 
 @dp.callback_query(F.data.startswith("complete_"))
 async def handle_complete_callback(callback: CallbackQuery):

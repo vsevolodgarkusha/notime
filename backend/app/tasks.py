@@ -12,9 +12,13 @@ from . import google_calendar
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 LLM_SERVICE_URL = os.getenv("LLM_SERVICE_URL", "http://llm-service:8000")
+LLM_INTERNAL_API_KEY = os.getenv("LLM_INTERNAL_API_KEY")
+
+if not LLM_INTERNAL_API_KEY:
+    raise RuntimeError("LLM_INTERNAL_API_KEY environment variable is required")
 
 @app.task
-def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: str, timezone_str: str, username: str = None):
+def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: str, timezone_str: str):
     logging.info(f"Processing LLM request for user {telegram_id}")
 
     db = SessionLocal()
@@ -27,7 +31,11 @@ def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: s
         }
 
         with httpx.Client(timeout=60.0) as client:
-            response = client.post(f"{LLM_SERVICE_URL}/process", json=payload)
+            response = client.post(
+                f"{LLM_SERVICE_URL}/process",
+                json=payload,
+                headers={"Authorization": f"Bearer {LLM_INTERNAL_API_KEY}"},
+            )
             response.raise_for_status()
             task_data = response.json()
 
@@ -45,16 +53,11 @@ def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: s
 
         user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
         if not user:
-            user = models.User(telegram_id=telegram_id, timezone=timezone_str, telegram_username=username)
+            user = models.User(telegram_id=telegram_id, timezone=timezone_str)
             db.add(user)
             db.commit()
             db.refresh(user)
-        else:
-            # Update username if changed
-            if username and user.telegram_username != username:
-                user.telegram_username = username
-                db.commit()
-        
+
         iso_datetime = task_data["params"]["iso_datetime"]
         description = task_data["params"]["text"]
 
@@ -189,11 +192,17 @@ def send_task_notification(task_id: int):
         time_str = format_user_time(task.due_date, task.user.timezone)
 
         logging.info(f"Sending notification for task {task.id} to user {task.user.telegram_id}")
-        send_notification_with_buttons(
+        ok = send_notification_with_buttons(
             task.chat_id or task.user.telegram_id,
             f"🔔 Напоминание!\n\n📝 {task.description}\n⏰ {time_str}",
-            task.id
+            task.id,
         )
+        if not ok:
+            logging.warning(f"Failed to send notification for task {task.id}")
+            task.status = TaskStatus.CREATED
+            db.commit()
+            return
+
         task.status = TaskStatus.SENT
         db.commit()
         logging.info(f"Task {task.id} marked as sent")
@@ -243,10 +252,10 @@ def edit_message(chat_id, message_id, text):
     except httpx.RequestError as e:
         logging.error(f"Request error occurred while editing message: {e}")
 
-def send_notification_with_buttons(chat_id, text, task_id):
+def send_notification_with_buttons(chat_id, text, task_id) -> bool:
     if BOT_TOKEN is None:
         logging.error("BOT_TOKEN environment variable is not set")
-        return
+        return False
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
@@ -256,21 +265,25 @@ def send_notification_with_buttons(chat_id, text, task_id):
             "inline_keyboard": [
                 [
                     {"text": "🔁 5 мин", "callback_data": f"snooze_{task_id}_5"},
-                    {"text": "🔁 1 час", "callback_data": f"snooze_{task_id}_60"}
+                    {"text": "🔁 1 час", "callback_data": f"snooze_{task_id}_60"},
                 ],
                 [
                     {"text": "✅ Готово", "callback_data": f"complete_{task_id}"},
-                    {"text": "❌ Отменить", "callback_data": f"cancel_{task_id}"}
-                ]
+                    {"text": "❌ Отменить", "callback_data": f"cancel_{task_id}"},
+                ],
             ]
-        }
+        },
     }
+
     try:
-        with httpx.Client() as client:
+        with httpx.Client(timeout=10.0) as client:
             response = client.post(url, json=payload)
             response.raise_for_status()
-            logging.info(f"Successfully sent notification with buttons to {chat_id}")
+        logging.info(f"Successfully sent notification with buttons to {chat_id}")
+        return True
     except httpx.HTTPStatusError as e:
         logging.error(f"HTTP error occurred while sending notification: {e}")
+        return False
     except httpx.RequestError as e:
         logging.error(f"Request error occurred while sending notification: {e}")
+        return False

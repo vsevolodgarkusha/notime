@@ -1,12 +1,32 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Header
 from pydantic import BaseModel
 from dotenv import load_dotenv
+import hmac
 import os
 from groq import Groq
 import json
 from typing import Optional
 
 load_dotenv()
+
+LLM_INTERNAL_API_KEY = os.getenv("LLM_INTERNAL_API_KEY")
+if not LLM_INTERNAL_API_KEY:
+    raise RuntimeError("LLM_INTERNAL_API_KEY environment variable is required")
+
+
+def verify_llm_api_key(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> None:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header required")
+
+    token = authorization
+    if token.lower().startswith("bearer "):
+        token = token[7:]
+
+    if not hmac.compare_digest(token, LLM_INTERNAL_API_KEY):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
 
 client = Groq()
 MODEL = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
@@ -71,7 +91,10 @@ Respond ONLY with a single, valid JSON object. Do not add any extra text or form
 
 
 @app.post("/process", response_model=TaskResponse)
-async def process_text(request: ProcessRequest):
+async def process_text(
+    request: ProcessRequest,
+    _: None = Depends(verify_llm_api_key),
+):
     user_prompt = f"""
     User Request: "{request.text}"
     User Timezone: "{request.timezone or 'UTC'}"

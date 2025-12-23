@@ -10,8 +10,8 @@ import os
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 from . import models, db
-from .db import SessionLocal, engine
-from .models import TaskStatus, FriendshipStatus
+from .db import SessionLocal
+from .models import TaskStatus
 from .utils import format_user_time
 from . import google_calendar
 from .auth import TelegramUser, get_telegram_user, verify_internal_api_key, get_user_id_flexible, get_auth_flexible, AuthResult
@@ -20,9 +20,6 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
-# Create tables if they don't exist (fallback for when migrations haven't run)
-# Migrations will add new columns/tables on top of this
-models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
@@ -75,35 +72,8 @@ class ProcessRequest(BaseModel):
     message_id: int
     text: str
     timezone: str
-    username: Optional[str] = None
 
 
-class UserRegister(BaseModel):
-    telegram_id: int
-    telegram_username: Optional[str] = None
-
-
-class FriendRequest(BaseModel):
-    friend_identifier: str  # telegram_id or username
-
-
-class FriendRequestResponse(BaseModel):
-    action: str  # "accept" or "reject"
-
-
-class FriendResponse(BaseModel):
-    id: int
-    telegram_id: int
-    telegram_username: Optional[str]
-    status: str
-
-
-class FriendRequestInfo(BaseModel):
-    id: int
-    from_user_telegram_id: int
-    from_user_username: Optional[str]
-    status: str
-    created_at: str
 
 def get_db():
     db_session = SessionLocal()
@@ -126,16 +96,11 @@ async def register_user(
     existing_user = db.query(models.User).filter(models.User.telegram_id == auth.telegram_id).first()
 
     if existing_user:
-        # Update username if changed
-        if auth.username and existing_user.telegram_username != auth.username:
-            existing_user.telegram_username = auth.username
-            db.commit()
-        return {"message": "User updated", "user_id": existing_user.id}
+        return {"message": "User exists", "user_id": existing_user.id}
 
     # Create new user
     new_user = models.User(
         telegram_id=auth.telegram_id,
-        telegram_username=auth.username
     )
     db.add(new_user)
     db.commit()
@@ -197,7 +162,6 @@ async def process_async(
         message_id=request.message_id,
         text=request.text,
         timezone_str=request.timezone,
-        username=request.username,
     )
     return {"message": "Запрос принят в обработку"}
 
@@ -332,199 +296,6 @@ async def update_task(
             "display_date": format_user_time(task.due_date, task.user.timezone) if task.due_date and task.user else ""
         }
     }
-
-# ==================== Friends API ====================
-
-@app.post("/api/friends/request")
-async def send_friend_request(
-    request: FriendRequest,
-    user_id: int = Depends(get_user_id_flexible),
-    db: Session = Depends(get_db)
-):
-    """Send a friend request to another user."""
-    # Get current user
-    from_user = db.query(models.User).filter(models.User.telegram_id == user_id).first()
-    if not from_user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-
-    # Find target user by telegram_id or username
-    identifier = request.friend_identifier.strip().lstrip('@')
-    to_user = None
-
-    # Try as telegram_id first
-    try:
-        target_id = int(identifier)
-        to_user = db.query(models.User).filter(models.User.telegram_id == target_id).first()
-    except ValueError:
-        # Try as username
-        to_user = db.query(models.User).filter(models.User.telegram_username == identifier).first()
-
-    if not to_user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден. Убедитесь, что он уже пользуется ботом.")
-
-    if to_user.id == from_user.id:
-        raise HTTPException(status_code=400, detail="Нельзя добавить себя в друзья")
-
-    # Check if friendship already exists
-    existing = db.query(models.Friendship).filter(
-        ((models.Friendship.from_user_id == from_user.id) & (models.Friendship.to_user_id == to_user.id)) |
-        ((models.Friendship.from_user_id == to_user.id) & (models.Friendship.to_user_id == from_user.id))
-    ).first()
-
-    if existing:
-        if existing.status == FriendshipStatus.ACCEPTED:
-            raise HTTPException(status_code=400, detail="Вы уже друзья")
-        elif existing.from_user_id == from_user.id:
-            raise HTTPException(status_code=400, detail="Запрос уже отправлен")
-        else:
-            raise HTTPException(status_code=400, detail="У вас уже есть запрос от этого пользователя")
-
-    # Create friendship request
-    friendship = models.Friendship(
-        from_user_id=from_user.id,
-        to_user_id=to_user.id,
-        status=FriendshipStatus.PENDING
-    )
-    db.add(friendship)
-    db.commit()
-
-    return {
-        "message": "Запрос на дружбу отправлен",
-        "to_user_id": to_user.telegram_id
-    }
-
-
-@app.get("/api/friends", response_model=List[FriendResponse])
-async def get_friends(
-    tg_user: TelegramUser = Depends(get_telegram_user),
-    db: Session = Depends(get_db)
-):
-    """Get list of friends for a user."""
-    user = db.query(models.User).filter(models.User.telegram_id == tg_user.id).first()
-    if not user:
-        return []
-
-    # Get accepted friendships where user is either from_user or to_user
-    friendships = db.query(models.Friendship).filter(
-        ((models.Friendship.from_user_id == user.id) | (models.Friendship.to_user_id == user.id)) &
-        (models.Friendship.status == FriendshipStatus.ACCEPTED)
-    ).all()
-
-    friends = []
-    for f in friendships:
-        friend = f.to_user if f.from_user_id == user.id else f.from_user
-        friends.append(FriendResponse(
-            id=f.id,
-            telegram_id=friend.telegram_id,
-            telegram_username=friend.telegram_username,
-            status="accepted"
-        ))
-
-    return friends
-
-
-@app.get("/api/friends/status")
-async def get_friends_status(
-    tg_user: TelegramUser = Depends(get_telegram_user),
-    db: Session = Depends(get_db)
-):
-    """Check if user has any friends (for showing/hiding friends tab)."""
-    user = db.query(models.User).filter(models.User.telegram_id == tg_user.id).first()
-    if not user:
-        return {"has_friends": False}
-
-    has_friends = db.query(models.Friendship).filter(
-        ((models.Friendship.from_user_id == user.id) | (models.Friendship.to_user_id == user.id)) &
-        (models.Friendship.status == FriendshipStatus.ACCEPTED)
-    ).first() is not None
-
-    return {"has_friends": has_friends}
-
-
-@app.get("/api/friends/requests", response_model=List[FriendRequestInfo])
-async def get_friend_requests(
-    user_id: int = Depends(get_user_id_flexible),
-    db: Session = Depends(get_db)
-):
-    """Get incoming friend requests for a user."""
-    user = db.query(models.User).filter(models.User.telegram_id == user_id).first()
-    if not user:
-        return []
-
-    # Get pending and rejected requests where user is the recipient
-    requests = db.query(models.Friendship).filter(
-        (models.Friendship.to_user_id == user.id) &
-        (models.Friendship.status.in_([FriendshipStatus.PENDING, FriendshipStatus.REJECTED]))
-    ).all()
-
-    return [
-        FriendRequestInfo(
-            id=r.id,
-            from_user_telegram_id=r.from_user.telegram_id,
-            from_user_username=r.from_user.telegram_username,
-            status=r.status.value,
-            created_at=r.created_at.isoformat() if r.created_at else ""
-        )
-        for r in requests
-    ]
-
-
-@app.post("/api/friends/requests/{request_id}/respond")
-async def respond_to_friend_request(
-    request_id: int,
-    response: FriendRequestResponse,
-    user_id: int = Depends(get_user_id_flexible),
-    db: Session = Depends(get_db)
-):
-    """Accept or reject a friend request."""
-    user = db.query(models.User).filter(models.User.telegram_id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-
-    friendship = db.query(models.Friendship).filter(
-        (models.Friendship.id == request_id) &
-        (models.Friendship.to_user_id == user.id)
-    ).first()
-
-    if not friendship:
-        raise HTTPException(status_code=404, detail="Запрос не найден")
-
-    if response.action == "accept":
-        friendship.status = FriendshipStatus.ACCEPTED
-        message = "Запрос принят"
-    elif response.action == "reject":
-        friendship.status = FriendshipStatus.REJECTED
-        message = "Запрос отклонен"
-    else:
-        raise HTTPException(status_code=400, detail="Неверное действие")
-
-    db.commit()
-    return {"message": message}
-
-
-@app.delete("/api/friends/{friendship_id}")
-async def delete_friend(
-    friendship_id: int,
-    tg_user: TelegramUser = Depends(get_telegram_user),
-    db: Session = Depends(get_db)
-):
-    """Remove a friend (delete friendship)."""
-    user = db.query(models.User).filter(models.User.telegram_id == tg_user.id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-
-    friendship = db.query(models.Friendship).filter(
-        (models.Friendship.id == friendship_id) &
-        ((models.Friendship.from_user_id == user.id) | (models.Friendship.to_user_id == user.id))
-    ).first()
-
-    if not friendship:
-        raise HTTPException(status_code=404, detail="Дружба не найдена")
-
-    db.delete(friendship)
-    db.commit()
-    return {"message": "Друг удален"}
-
 
 # ==================== Google Calendar API ====================
 
