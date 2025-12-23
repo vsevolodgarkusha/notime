@@ -78,8 +78,8 @@ class TimezoneUpdate(BaseModel):
     timezone: str
 
 
-
 def get_db():
+    db_session = SessionLocal()
     try:
         yield db_session
     finally:
