@@ -33,6 +33,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - BOT_TOKEN=${BOT_TOKEN}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       - DATABASE_URL=postgresql://user:password@postgres/dbname
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
@@ -82,6 +83,7 @@ services:
       - PYTHONUNBUFFERED=1
       - GROQ_API_KEY=${GROQ_API_KEY}
       - BOT_TOKEN=${BOT_TOKEN}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-http://localhost:8080}
       - WEBAPP_URL=${WEBAPP_URL:-http://localhost:8080}
     depends_on:
