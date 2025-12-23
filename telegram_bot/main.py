@@ -95,6 +95,19 @@ async def command_timezone_handler(message: Message) -> None:
         return
 
     await redis_client.set(f"timezone:{user_id}", timezone_str)
+
+    # Persist timezone in backend DB
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            await client.put(
+                f"{BACKEND_URL}/api/users/timezone",
+                params={"telegram_id": user_id},
+                json={"timezone": timezone_str},
+                headers=get_backend_headers(),
+            )
+        except Exception as e:
+            logging.error(f"Error saving timezone to backend: {e}")
+
     await message.answer(f"✅ Часовой пояс установлен: {timezone_str}")
 
 @dp.message(Command("autotimezone"))
@@ -185,19 +198,32 @@ async def handle_location(message: Message):
     user_id = message.from_user.id
     lat = message.location.latitude
     lon = message.location.longitude
-    
+
     timezone_str = tf.timezone_at(lng=lon, lat=lat)
 
     if timezone_str:
         await redis_client.set(f"timezone:{user_id}", timezone_str)
+
+        # Persist timezone in backend DB
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                await client.put(
+                    f"{BACKEND_URL}/api/users/timezone",
+                    params={"telegram_id": user_id},
+                    json={"timezone": timezone_str},
+                    headers=get_backend_headers(),
+                )
+            except Exception as e:
+                logging.error(f"Error saving timezone to backend: {e}")
+
         await message.answer(
             f"✅ Часовой пояс определён: {timezone_str}",
-            reply_markup=types.ReplyKeyboardRemove()
+            reply_markup=types.ReplyKeyboardRemove(),
         )
     else:
         await message.answer(
             "❌ Не удалось определить часовой пояс по геолокации.",
-            reply_markup=types.ReplyKeyboardRemove()
+            reply_markup=types.ReplyKeyboardRemove(),
         )
 
 @dp.message(F.text)

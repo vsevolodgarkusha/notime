@@ -57,6 +57,9 @@ def process_llm_request(telegram_id: int, chat_id: int, message_id: int, text: s
             db.add(user)
             db.commit()
             db.refresh(user)
+        elif user.timezone != timezone_str:
+            user.timezone = timezone_str
+            db.commit()
 
         iso_datetime = task_data["params"]["iso_datetime"]
         description = task_data["params"]["text"]

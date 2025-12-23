@@ -74,9 +74,12 @@ class ProcessRequest(BaseModel):
     timezone: str
 
 
+class TimezoneUpdate(BaseModel):
+    timezone: str
+
+
 
 def get_db():
-    db_session = SessionLocal()
     try:
         yield db_session
     finally:
@@ -105,8 +108,37 @@ async def register_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-
     return {"message": "User created", "user_id": new_user.id}
+
+
+@app.put("/api/users/timezone")
+async def set_user_timezone(
+    update: TimezoneUpdate,
+    auth: AuthResult = Depends(get_auth_flexible),
+    db: Session = Depends(get_db),
+):
+    """Set or update user's timezone.
+
+    Accepts either:
+    - Mini App: Authorization: tma <initData>
+    - Bot: Authorization: Bearer <INTERNAL_API_KEY> + telegram_id query param
+    """
+    tz = update.timezone.strip()
+    if not tz:
+        raise HTTPException(status_code=400, detail="Timezone is required")
+
+    user = db.query(models.User).filter(models.User.telegram_id == auth.telegram_id).first()
+
+    if not user:
+        user = models.User(telegram_id=auth.telegram_id, timezone=tz)
+        db.add(user)
+    else:
+        user.timezone = tz
+
+    db.commit()
+    db.refresh(user)
+
+    return {"message": "Timezone updated", "timezone": user.timezone}
 
 
 @app.post("/schedule")
