@@ -412,20 +412,11 @@ async def handle_snooze_callback(callback: CallbackQuery):
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            # 1. Fetch the task to get its current due_date
             get_response = await client.get(f"{BACKEND_URL}/api/tasks/{task_id}")
             get_response.raise_for_status()
-            task_data = get_response.json()
 
-            # 2. Calculate new due_date from existing one
-            try:
-                current_due_date = datetime.fromisoformat(task_data["due_date"])
-            except (ValueError, KeyError):
-                current_due_date = datetime.now(timezone.utc)
+            new_due_date = datetime.now(timezone.utc) + timedelta(minutes=minutes)
 
-            new_due_date = current_due_date + timedelta(minutes=minutes)
-
-            # 3. Update task with new due_date
             patch_response = await client.patch(
                 f"{BACKEND_URL}/api/tasks/{task_id}",
                 json={
