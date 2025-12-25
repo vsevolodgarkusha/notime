@@ -270,6 +270,7 @@ async def process_message(message: Message) -> None:
 
 @dp.callback_query(F.data.startswith("cancel_"))
 async def handle_cancel_callback(callback: CallbackQuery):
+    """Legacy handler - cancelled status merged into completed"""
     task_id = callback.data.split("_")[1]
 
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -277,7 +278,7 @@ async def handle_cancel_callback(callback: CallbackQuery):
             response = await client.patch(
                 f"{BACKEND_URL}/api/tasks/{task_id}",
                 params={"telegram_id": callback.from_user.id},
-                json={"status": "cancelled"},
+                json={"status": "completed"},
                 headers=get_backend_headers()
             )
             response.raise_for_status()
@@ -285,11 +286,11 @@ async def handle_cancel_callback(callback: CallbackQuery):
             # Remove inline buttons from notification
             await callback.message.edit_reply_markup(reply_markup=None)
             # Reply to the notification message with status
-            await callback.message.reply("❌ Задача отменена")
-            await callback.answer("Задача отменена")
+            await callback.message.reply("✅ Задача завершена")
+            await callback.answer("Задача завершена")
         except Exception as e:
-            logging.error(f"Error cancelling task: {e}")
-            await callback.answer("Ошибка при отмене задачи", show_alert=True)
+            logging.error(f"Error completing task: {e}")
+            await callback.answer("Ошибка при завершении задачи", show_alert=True)
 @dp.callback_query(F.data.startswith("snooze_"))
 async def handle_snooze_callback(callback: CallbackQuery):
     parts = callback.data.split("_")
@@ -413,11 +414,11 @@ async def handle_complete_callback(callback: CallbackQuery):
             # Remove inline buttons from notification
             await callback.message.edit_reply_markup(reply_markup=None)
             # Reply to the notification message with status
-            await callback.message.reply("✅ Выполнено")
-            await callback.answer("Задача выполнена")
+            await callback.message.reply("✅ Задача завершена")
+            await callback.answer("Задача завершена")
         except Exception as e:
             logging.error(f"Error completing task: {e}")
-            await callback.answer("Ошибка при выполнении", show_alert=True)
+            await callback.answer("Ошибка при завершении задачи", show_alert=True)
 @dp.message()
 async def fallback_handler(message: Message) -> None:
     await message.answer("🤔 Не понял. Напиши текстом, о чём напомнить.")

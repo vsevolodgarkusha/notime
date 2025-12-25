@@ -47,21 +47,15 @@
             </div>
           </div>
 
-          <div class="task-footer">
-            <div class="task-time">
-              <span class="time-icon">⏰</span>
-              {{ task.display_date || formatDate(task.due_date) }}
-            </div>
+          <div class="task-time">
+            <span class="time-icon">⏰</span>
+            {{ task.display_date || formatDate(task.due_date) }}
           </div>
 
           <div class="task-actions">
             <button @click="completeTask(task.id)" class="btn btn-complete">
               <span class="btn-icon-left">✓</span>
-              Готово
-            </button>
-            <button @click="cancelTask(task.id)" class="btn btn-cancel">
-              <span class="btn-icon-left">✕</span>
-              Отменить
+              Завершить
             </button>
           </div>
         </div>
@@ -88,11 +82,9 @@
           <div class="task-body">
             <div class="task-description strikethrough">{{ task.description }}</div>
           </div>
-          <div class="task-footer">
-            <div class="task-time">
-              <span class="time-icon">⏰</span>
-              {{ task.display_date || formatDate(task.due_date) }}
-            </div>
+          <div class="task-time completed-time">
+            <span class="time-icon">✓</span>
+            {{ task.display_completed_at || (task.display_date || formatDate(task.due_date)) }}
           </div>
         </div>
       </div>
@@ -110,6 +102,8 @@ interface Task {
   display_date: string;
   status: string;
   created_at: string;
+  completed_at?: string;
+  display_completed_at?: string;
 }
 
 const tasks = ref<Task[]>([]);
@@ -138,8 +132,12 @@ const activeTasks = computed(() =>
 );
 
 const completedTasks = computed(() =>
-  tasks.value.filter(t => t.status === 'completed' || t.status === 'cancelled')
-    .sort((a, b) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime())
+  tasks.value.filter(t => t.status === 'completed')
+    .sort((a, b) => {
+      const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+      const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+      return bTime - aTime;
+    })
 );
 
 const statusLabel = (status: string) => {
@@ -147,8 +145,7 @@ const statusLabel = (status: string) => {
     created: 'Запланировано',
     scheduled: 'Запланировано',
     sent: 'Отправлено',
-    completed: 'Выполнено',
-    cancelled: 'Отменено',
+    completed: 'Завершено',
   };
   return labels[status] || status;
 };
@@ -214,7 +211,6 @@ const updateTaskStatus = async (id: number, status: string) => {
 };
 
 const completeTask = (id: number) => updateTaskStatus(id, 'completed');
-const cancelTask = (id: number) => updateTaskStatus(id, 'cancelled');
 
 const startEdit = (task: Task) => {
   editingTaskId.value = task.id;
@@ -260,25 +256,28 @@ onMounted(() => {
 
 <style scoped>
 .task-list-container {
-  padding: 20px;
+  padding: 16px;
   min-height: 100vh;
+  background: var(--tg-bg);
 }
 
 .page-header {
-  margin-bottom: 24px;
-  padding: 0 4px;
+  margin-bottom: 20px;
+  padding: 4px 0;
 }
 
 .header-title {
-  font-size: 28px;
+  font-size: 32px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--tg-text);
   margin-bottom: 4px;
+  letter-spacing: -0.5px;
 }
 
 .header-subtitle {
-  font-size: 14px;
-  color: var(--text-secondary);
+  font-size: 15px;
+  color: var(--tg-hint);
+  font-weight: 500;
 }
 
 .loading-state,
@@ -295,8 +294,8 @@ onMounted(() => {
 .spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid var(--border);
-  border-top-color: var(--accent);
+  border: 3px solid var(--tg-secondary-bg);
+  border-top-color: var(--tg-accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 16px;
@@ -308,7 +307,7 @@ onMounted(() => {
 
 .loading-state p,
 .error-state p {
-  color: var(--text-secondary);
+  color: var(--tg-hint);
   font-size: 15px;
 }
 
@@ -324,82 +323,73 @@ onMounted(() => {
 .empty-icon {
   font-size: 64px;
   margin-bottom: 20px;
-  opacity: 0.8;
+  opacity: 0.5;
 }
 
 .empty-state h3 {
   font-size: 20px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--tg-text);
   margin-bottom: 8px;
 }
 
 .empty-state p {
-  font-size: 14px;
-  color: var(--text-secondary);
-  max-width: 240px;
+  font-size: 15px;
+  color: var(--tg-hint);
+  max-width: 280px;
+  line-height: 1.4;
 }
 
 .task-card {
-  background: var(--bg-card);
+  background: var(--tg-section-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 12px;
-  transition: all 0.3s ease;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  transition: all 0.2s ease;
 }
 
-.task-card:hover {
-  border-color: rgba(255, 255, 255, 0.1);
-  transform: translateY(-2px);
+.task-card:active {
+  transform: scale(0.98);
+  opacity: 0.9;
 }
 
 .task-card.completed {
-  opacity: 0.6;
-}
-
-.task-card.completed:hover {
-  transform: none;
+  opacity: 0.65;
 }
 
 .task-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .task-status-indicator {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
 }
 
 .task-status-indicator.created,
 .task-status-indicator.scheduled {
   background: var(--warning);
-  box-shadow: 0 0 8px var(--warning);
 }
 
 .task-status-indicator.sent {
-  background: var(--success);
-  box-shadow: 0 0 8px var(--success);
+  background: var(--tg-accent);
 }
 
 .task-status-indicator.completed {
   background: var(--success);
 }
 
-.task-status-indicator.cancelled {
-  background: var(--danger);
-}
-
 .task-status-text {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tg-section-header);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
 }
 
 .task-body {
@@ -410,8 +400,8 @@ onMounted(() => {
 .task-description {
   font-size: 16px;
   font-weight: 500;
-  color: var(--text-primary);
-  line-height: 1.5;
+  color: var(--tg-text);
+  line-height: 1.45;
   cursor: pointer;
   display: flex;
   align-items: flex-start;
@@ -420,7 +410,7 @@ onMounted(() => {
 
 .task-description.strikethrough {
   text-decoration: line-through;
-  opacity: 0.7;
+  opacity: 0.6;
   cursor: default;
 }
 
@@ -431,7 +421,7 @@ onMounted(() => {
 }
 
 .task-description:hover .edit-hint {
-  opacity: 0.5;
+  opacity: 0.4;
 }
 
 .edit-mode {
@@ -447,16 +437,16 @@ onMounted(() => {
   min-width: 0;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--accent);
-  background: rgba(108, 92, 231, 0.1);
-  color: var(--text-primary);
+  border: 2px solid var(--tg-accent);
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
   font-size: 15px;
   font-family: inherit;
   outline: none;
 }
 
 .edit-input::placeholder {
-  color: var(--text-secondary);
+  color: var(--tg-hint);
 }
 
 .edit-actions {
@@ -484,28 +474,32 @@ onMounted(() => {
 }
 
 .btn-icon.cancel {
-  background: var(--border);
-  color: var(--text-secondary);
+  background: var(--tg-secondary-bg);
+  color: var(--tg-hint);
 }
 
-.btn-icon:hover {
-  transform: scale(1.05);
-}
-
-.task-footer {
-  margin-bottom: 16px;
+.btn-icon:active {
+  transform: scale(0.95);
 }
 
 .task-time {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-size: 14px;
+  color: var(--tg-subtitle);
+  margin-bottom: 14px;
+  font-weight: 500;
 }
 
 .time-icon {
   font-size: 14px;
+  opacity: 0.8;
+}
+
+.completed-time {
+  margin-bottom: 0;
+  opacity: 0.6;
 }
 
 .task-actions {
@@ -522,7 +516,7 @@ onMounted(() => {
   padding: 12px 16px;
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -533,36 +527,24 @@ onMounted(() => {
 }
 
 .btn-complete {
-  background: linear-gradient(135deg, var(--success) 0%, #00b359 100%);
-  color: white;
+  background: var(--tg-button);
+  color: var(--tg-button-text);
 }
 
-.btn-complete:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 210, 106, 0.35);
-}
-
-.btn-cancel {
-  background: rgba(255, 71, 87, 0.15);
-  color: var(--danger);
-  border: 1px solid rgba(255, 71, 87, 0.3);
-}
-
-.btn-cancel:hover {
-  background: var(--danger);
-  color: white;
-  border-color: transparent;
+.btn-complete:active {
+  transform: scale(0.97);
+  opacity: 0.9;
 }
 
 .completed-section {
-  margin-top: 32px;
+  margin-top: 28px;
 }
 
 .section-divider {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .divider-line {
@@ -572,15 +554,15 @@ onMounted(() => {
 }
 
 .divider-text {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tg-section-header);
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.8px;
 }
 
 .completed-section .task-card {
-  padding: 14px;
+  padding: 12px 14px;
 }
 
 .completed-section .task-actions {

@@ -11,7 +11,6 @@ class TaskStatus(enum.Enum):
     SCHEDULED = "scheduled"
     SENT = "sent"
     COMPLETED = "completed"
-    CANCELLED = "cancelled"
 
 
 class User(Base):
@@ -33,6 +32,7 @@ class Task(Base):
     description = Column(String)
     due_date = Column(DateTime(timezone=True))
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(
         Enum(TaskStatus, values_callable=lambda obj: [e.value for e in obj]),
         default=TaskStatus.CREATED,

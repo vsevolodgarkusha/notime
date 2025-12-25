@@ -57,6 +57,8 @@ class TaskResponse(BaseModel):
     display_date: str
     status: str
     created_at: str
+    completed_at: Optional[str] = None
+    display_completed_at: Optional[str] = None
 
 class StatusUpdate(BaseModel):
     status: str
@@ -216,6 +218,8 @@ async def get_tasks(
             display_date=format_user_time(t.due_date, user.timezone) if t.due_date else "",
             status=t.status.value,
             created_at=t.created_at.isoformat() if t.created_at else "",
+            completed_at=t.completed_at.isoformat() if t.completed_at else None,
+            display_completed_at=format_user_time(t.completed_at, user.timezone) if t.completed_at and user.timezone else None,
         )
         for t in tasks
     ]
@@ -242,6 +246,8 @@ async def get_task(
         display_date=format_user_time(task.due_date, user.timezone) if task.due_date and user.timezone else "",
         status=task.status.value,
         created_at=task.created_at.isoformat() if task.created_at else "",
+        completed_at=task.completed_at.isoformat() if task.completed_at else None,
+        display_completed_at=format_user_time(task.completed_at, user.timezone) if task.completed_at and user.timezone else None,
     )
 
 @app.patch("/api/tasks/{task_id}")
@@ -266,7 +272,11 @@ async def update_task(
 
     if update.status is not None:
         try:
-            task.status = TaskStatus(update.status)
+            new_status = TaskStatus(update.status)
+            # Set completed_at when task is marked as completed
+            if new_status == TaskStatus.COMPLETED and task.status != TaskStatus.COMPLETED:
+                task.completed_at = datetime.now(timezone.utc)
+            task.status = new_status
         except ValueError:
             raise HTTPException(status_code=400, detail="Неверный статус")
 
@@ -302,12 +312,7 @@ async def update_task(
             token_data = json.loads(task.user.google_calendar_token)
             new_status = task.status
 
-            if new_status == TaskStatus.CANCELLED:
-                # Delete event from calendar
-                google_calendar.delete_calendar_event(token_data, task.google_calendar_event_id)
-                task.google_calendar_event_id = None
-                db.commit()
-            elif new_status == TaskStatus.COMPLETED:
+            if new_status == TaskStatus.COMPLETED:
                 # Mark event as completed
                 google_calendar.mark_event_completed(token_data, task.google_calendar_event_id, task.description)
             elif old_status not in (TaskStatus.CREATED, TaskStatus.SCHEDULED) and new_status == TaskStatus.CREATED:

@@ -271,8 +271,7 @@ def send_notification_with_buttons(chat_id, text, task_id) -> bool:
                     {"text": "🔁 1 час", "callback_data": f"snooze_{task_id}_60"},
                 ],
                 [
-                    {"text": "✅ Готово", "callback_data": f"complete_{task_id}"},
-                    {"text": "❌ Отменить", "callback_data": f"cancel_{task_id}"},
+                    {"text": "✅ Завершить", "callback_data": f"complete_{task_id}"},
                 ],
             ]
         },

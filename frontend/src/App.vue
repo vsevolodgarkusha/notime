@@ -1,10 +1,5 @@
 <script setup lang="ts">
-import { RouterView, RouterLink, useRoute } from 'vue-router'
-import { computed } from 'vue'
-
-const route = useRoute()
-
-const isTasksActive = computed(() => route.path === '/tasks' || route.path === '/')
+import { RouterView } from 'vue-router'
 </script>
 
 <template>
@@ -12,14 +7,6 @@ const isTasksActive = computed(() => route.path === '/tasks' || route.path === '
     <main class="main-content">
       <RouterView />
     </main>
-    <nav class="bottom-nav">
-      <RouterLink to="/tasks" :class="['nav-item', { active: isTasksActive }]">
-        <div class="nav-icon-wrapper">
-          <span class="nav-icon">📋</span>
-        </div>
-        <span class="nav-label">Задачи</span>
-      </RouterLink>
-    </nav>
   </div>
 </template>
 
@@ -33,20 +20,29 @@ const isTasksActive = computed(() => route.path === '/tasks' || route.path === '
 }
 
 :root {
-  --bg-primary: var(--tg-theme-bg-color, #0f0f1a);
-  --bg-secondary: var(--tg-theme-secondary-bg-color, #1a1a2e);
-  --bg-card: rgba(255, 255, 255, 0.03);
-  --text-primary: var(--tg-theme-text-color, #ffffff);
-  --text-secondary: var(--tg-theme-hint-color, #8b8b9e);
-  --accent: var(--tg-theme-button-color, #6c5ce7);
-  --accent-light: rgba(108, 92, 231, 0.15);
-  --success: #00d26a;
-  --danger: #ff4757;
-  --warning: #ffa502;
-  --border: rgba(255, 255, 255, 0.06);
-  --shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  --radius: 16px;
-  --radius-sm: 12px;
+  /* Telegram theme colors */
+  --tg-bg: var(--tg-theme-bg-color, #ffffff);
+  --tg-text: var(--tg-theme-text-color, #000000);
+  --tg-hint: var(--tg-theme-hint-color, #999999);
+  --tg-link: var(--tg-theme-link-color, #2481cc);
+  --tg-button: var(--tg-theme-button-color, #2481cc);
+  --tg-button-text: var(--tg-theme-button-text-color, #ffffff);
+  --tg-secondary-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
+  --tg-header-bg: var(--tg-theme-header-bg-color, #ffffff);
+  --tg-section-bg: var(--tg-theme-section-bg-color, #ffffff);
+  --tg-section-header: var(--tg-theme-section-header-text-color, #6d6d72);
+  --tg-section-separator: var(--tg-theme-section-separator-color, #d1d1d6);
+  --tg-accent: var(--tg-theme-accent-text-color, #2481cc);
+  --tg-subtitle: var(--tg-theme-subtitle-text-color, #999999);
+  --tg-destructive: var(--tg-theme-destructive-text-color, #ff3b30);
+
+  /* App-specific colors */
+  --success: #34c759;
+  --warning: #ff9500;
+  --border: var(--tg-section-separator);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --radius: 12px;
+  --radius-sm: 8px;
 }
 
 body {
@@ -66,7 +62,7 @@ body::-webkit-scrollbar {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+  background: var(--tg-bg);
 }
 
 .main-content {
@@ -83,15 +79,15 @@ body::-webkit-scrollbar {
   display: flex;
   justify-content: center;
   gap: 8px;
-  background: rgba(30, 30, 45, 0.75);
+  background: var(--tg-secondary-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 8px 12px;
   padding-bottom: max(8px, env(safe-area-inset-bottom));
   z-index: 100;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow);
 }
 
 .nav-item {
@@ -101,18 +97,18 @@ body::-webkit-scrollbar {
   gap: 6px;
   padding: 8px 14px;
   text-decoration: none;
-  color: var(--text-secondary);
+  color: var(--tg-hint);
   border-radius: var(--radius-sm);
   transition: all 0.2s ease;
 }
 
 .nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tg-section-bg);
 }
 
 .nav-item.active {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--tg-accent);
+  background: var(--tg-section-bg);
 }
 
 .nav-icon-wrapper {

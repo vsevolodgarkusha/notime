@@ -10,6 +10,8 @@ app = Celery(
     include=["app.tasks"],
 )
 
+app.conf.timezone = 'UTC'
+
 app.conf.beat_schedule = {
     'check-due-tasks-every-minute': {
         'task': 'app.tasks.check_due_tasks',

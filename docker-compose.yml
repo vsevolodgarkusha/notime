@@ -29,15 +29,18 @@ services:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?INTERNAL_API_KEY is required}
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
       - LLM_INTERNAL_API_KEY=${LLM_INTERNAL_API_KEY:?LLM_INTERNAL_API_KEY is required}
+      - LLM_SERVICE_URL=http://llm-service:8000
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
       - STATE_SECRET=${STATE_SECRET:?STATE_SECRET is required}
       - BOT_USERNAME=${BOT_USERNAME}
       - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - REDIS_HOST=redis
     depends_on:
       - redis
       - postgres
+      - llm-service
 
   celery-worker:
     build: ./backend
@@ -48,13 +51,16 @@ services:
       - BOT_TOKEN=${BOT_TOKEN:?BOT_TOKEN is required}
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
       - LLM_INTERNAL_API_KEY=${LLM_INTERNAL_API_KEY:?LLM_INTERNAL_API_KEY is required}
+      - LLM_SERVICE_URL=http://llm-service:8000
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - STATE_SECRET=${STATE_SECRET:?STATE_SECRET is required}
+      - REDIS_HOST=redis
     depends_on:
       - redis
       - backend
       - postgres
+      - llm-service
 
   celery-beat:
     build: ./backend
@@ -62,7 +68,13 @@ services:
     command: ["uv", "run", "celery", "-A", "app.celery_app", "beat", "--loglevel=info"]
     environment:
       - PYTHONUNBUFFERED=1
+      - BOT_TOKEN=${BOT_TOKEN:?BOT_TOKEN is required}
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - LLM_INTERNAL_API_KEY=${LLM_INTERNAL_API_KEY:?LLM_INTERNAL_API_KEY is required}
+      - STATE_SECRET=${STATE_SECRET:?STATE_SECRET is required}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - REDIS_HOST=redis
     depends_on:
       - redis
       - celery-worker
@@ -81,7 +93,10 @@ services:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:?INTERNAL_API_KEY is required}
       - PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-http://localhost:8080}
       - WEBAPP_URL=${WEBAPP_URL:-http://localhost:8080}
+      - REDIS_HOST=redis
+      - BACKEND_URL=http://backend:8001
     depends_on:
+      - redis
       - llm-service
       - backend
       - frontend

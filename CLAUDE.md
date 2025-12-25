@@ -83,7 +83,10 @@ PostgreSQL    Redis      Celery
 
 ### Database Schema
 - **users**: telegram_id, timezone, google_calendar_token
-- **tasks**: user_id, description, due_date, status (created→scheduled→sent→completed/cancelled)
+- **tasks**: user_id, description, due_date, completed_at, status (created→scheduled→sent→completed)
+  - **Status flow**: `created` (new task) → `scheduled` (in Celery queue) → `sent` (notification delivered) → `completed` (user finished)
+  - **completed_at**: Set when task status changes to `completed`, displayed in user timezone
+  - Note: `cancelled` status was merged into `completed` status
 
 ## Key Files
 
@@ -108,13 +111,86 @@ PostgreSQL    Redis      Celery
 - Vue 3 Composition API with `<script setup lang="ts">`
 - Telegram WebApp integration: `window.Telegram?.WebApp?.initDataUnsafe?.user?.id`
 - Local testing fallback: `?telegram_id=123` query param
+- **Design System**: Native Telegram Mini App look using official Telegram CSS variables
+  - All colors automatically adapt to user's Telegram theme (light/dark)
+  - No custom gradients or effects - clean, native Telegram appearance
+
+#### Telegram Theme Variables
+The app uses official Telegram Mini App CSS variables that automatically adapt to user's theme:
+
+**Primary Colors:**
+- `--tg-theme-bg-color` → Background
+- `--tg-theme-text-color` → Main text
+- `--tg-theme-hint-color` → Secondary/hint text
+- `--tg-theme-button-color` → Primary button background
+- `--tg-theme-button-text-color` → Button text
+
+**Section Colors:**
+- `--tg-theme-secondary-bg-color` → Cards, sections
+- `--tg-theme-section-bg-color` → Inner section backgrounds
+- `--tg-theme-section-header-text-color` → Section headers
+- `--tg-theme-section-separator-color` → Dividers, borders
+
+**Accent & Actions:**
+- `--tg-theme-accent-text-color` → Links, active states
+- `--tg-theme-destructive-text-color` → Destructive actions (not used currently)
+- `--tg-theme-subtitle-text-color` → Timestamps, metadata
+
+**Design Principles:**
+1. **Always use Telegram variables** for colors - never hardcode hex values except for success/warning
+2. **Minimal shadows** - use `0 2px 8px rgba(0,0,0,0.08)` sparingly
+3. **Border radius** - 12px for cards, 8px for buttons (Telegram standard)
+4. **Compact spacing** - Telegram apps are information-dense
+5. **Active states** - use `transform: scale(0.97)` instead of hover effects (mobile-first)
+6. **Native interactions** - `:active` instead of `:hover`, no elaborate animations
+
+## Docker Services Configuration
+
+Each service requires specific environment variables. Critical for proper operation:
+
+### celery-beat (Scheduler)
+**Required variables:**
+- `BOT_TOKEN` - sends Telegram notifications
+- `DATABASE_URL` - reads tasks from database
+- `LLM_INTERNAL_API_KEY` - imported by tasks.py
+- `STATE_SECRET` - imported by google_calendar.py
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` - Google Calendar integration
+- `REDIS_HOST` - Celery broker connection
+
+**Purpose**: Runs every 60 seconds to check for due tasks and schedule notifications
+
+### celery-worker (Task Processor)
+**Required variables:**
+- All backend variables + `LLM_SERVICE_URL`, `REDIS_HOST`
+
+**Purpose**: Processes async tasks (LLM parsing, notifications, Google Calendar sync)
+
+### backend (API Server)
+**Required variables:**
+- `DATABASE_URL`, `BOT_TOKEN`, `INTERNAL_API_KEY`
+- `LLM_INTERNAL_API_KEY`, `LLM_SERVICE_URL`
+- `STATE_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- `REDIS_HOST`, `CORS_ORIGINS`
 
 ## Environment Variables
 
 Required in `.env` (not in Git):
 - `BOT_TOKEN`, `INTERNAL_API_KEY`
 - `DATABASE_URL`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
-- `STATE_SECRET` (required for Google OAuth state signing)
+- `STATE_SECRET` (required for Google OAuth state signing - used at import time)
 - `LLM_INTERNAL_API_KEY` (internal auth between backend ↔ llm_service)
 - `GROQ_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
 - `REDIS_HOST`, `PUBLIC_DOMAIN`, `WEBAPP_URL`
+
+## Common Issues
+
+### Celery Beat not starting
+- **Symptom**: Container exits with code 1, no periodic tasks running
+- **Cause**: Missing environment variables (STATE_SECRET, LLM_INTERNAL_API_KEY, BOT_TOKEN)
+- **Fix**: Ensure celery-beat has all required variables in docker-compose.yml
+- **Check logs**: `docker compose logs celery-beat --tail 50`
+
+### Notifications not arriving
+- **Check**: Is celery-beat running? `docker ps | grep celery-beat`
+- **Check**: Celery worker logs for task execution: `docker compose logs celery-worker -f`
+- **Check**: Task status in database - should transition: created → scheduled → sent
