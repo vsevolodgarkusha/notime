@@ -3,10 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional, List
 import logging
 import json
 import os
+import redis
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 from . import models, db
@@ -22,6 +24,10 @@ logging.basicConfig(level=logging.INFO)
 
 
 app = FastAPI()
+
+# Redis client for one-time tokens
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+redis_client = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
 
 # CORS origins: from env or defaults for dev
 cors_origins_env = os.getenv("CORS_ORIGINS", "")
@@ -41,6 +47,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def is_valid_timezone(tz_str: str) -> bool:
+    """Validate if timezone string is a valid IANA timezone."""
+    try:
+        ZoneInfo(tz_str)
+        return True
+    except Exception:
+        return False
 
 class TaskSchedule(BaseModel):
     telegram_id: int
@@ -128,6 +142,9 @@ async def set_user_timezone(
     tz = update.timezone.strip()
     if not tz:
         raise HTTPException(status_code=400, detail="Timezone is required")
+
+    if not is_valid_timezone(tz):
+        raise HTTPException(status_code=400, detail=f"Invalid timezone: {tz}. Use IANA timezone format (e.g., Europe/Moscow)")
 
     user = db.query(models.User).filter(models.User.telegram_id == auth.telegram_id).first()
 
@@ -341,12 +358,13 @@ BOT_USERNAME = os.getenv("BOT_USERNAME", "notime_scheduler_bot")
 
 @app.get("/api/google/auth")
 async def google_auth(
-    user_id: int = Depends(get_user_id_flexible),
+    token: str = Query(..., description="One-time auth token"),
     db: Session = Depends(get_db)
 ):
     """
     Initiate Google OAuth flow.
-    Generates signed state and redirects to Google OAuth.
+    Accepts one-time token from query param (security via Redis token + signed state).
+    Verifies token in Redis, extracts telegram_id, deletes token, redirects to Google OAuth.
     """
     # Check if Google Calendar is configured
     if not google_calendar.is_configured():
@@ -355,12 +373,23 @@ async def google_auth(
             detail="Google Calendar не настроен. Добавьте GOOGLE_CLIENT_ID и GOOGLE_CLIENT_SECRET в .env"
         )
 
+    # Verify token in Redis and get telegram_id
+    redis_key = f"calendar_auth:{token}"
+    telegram_id_str = redis_client.get(redis_key)
+    if not telegram_id_str:
+        raise HTTPException(status_code=401, detail="Неверный или истекший токен авторизации")
+
+    # Delete token (one-time use)
+    redis_client.delete(redis_key)
+
+    telegram_id = int(telegram_id_str)
+
     # Verify user exists
-    user = db.query(models.User).filter(models.User.telegram_id == user_id).first()
+    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден. Сначала отправьте /start боту.")
 
-    auth_url = google_calendar.get_authorization_url(user_id)
+    auth_url = google_calendar.get_authorization_url(telegram_id)
     return RedirectResponse(url=auth_url)
 
 

@@ -3,7 +3,9 @@ import logging
 import sys
 import httpx
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import io
 from dotenv import load_dotenv
 from groq import Groq
@@ -44,6 +46,14 @@ def get_location_keyboard():
     builder = ReplyKeyboardBuilder()
     builder.button(text="📍 Отправить геолокацию", request_location=True)
     return builder.as_markup(resize_keyboard=True)
+
+def is_valid_timezone(tz_str: str) -> bool:
+    """Validate if timezone string is a valid IANA timezone."""
+    try:
+        ZoneInfo(tz_str)
+        return True
+    except Exception:
+        return False
 
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
@@ -94,6 +104,16 @@ async def command_timezone_handler(message: Message) -> None:
         )
         return
 
+    # Validate timezone
+    if not is_valid_timezone(timezone_str):
+        await message.answer(
+            f"❌ Неверный часовой пояс: {timezone_str}\n\n"
+            "Используй формат IANA (например, Europe/Moscow).\n"
+            "Список таймзон: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones\n\n"
+            "Или используй /autotimezone для автоопределения."
+        )
+        return
+
     await redis_client.set(f"timezone:{user_id}", timezone_str)
 
     # Persist timezone in backend DB
@@ -122,11 +142,6 @@ async def command_autotimezone_handler(message: Message) -> None:
 async def command_calendar_handler(message: Message) -> None:
     user_id = message.from_user.id
 
-    # Only admins can use the calendar feature
-    if user_id not in ADMIN_IDS:
-        await message.answer("❌ Эта функция доступна только для администраторов.")
-        return
-
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             # Check current connection status
@@ -149,8 +164,11 @@ async def command_calendar_handler(message: Message) -> None:
                     reply_markup=keyboard
                 )
             else:
-                # Not connected - generate direct link to backend OAuth endpoint
-                auth_url = f"{PUBLIC_DOMAIN}/api/google/auth?telegram_id={user_id}"
+                # Not connected - generate one-time token and save to Redis
+                auth_token = str(uuid.uuid4())
+                await redis_client.set(f"calendar_auth:{auth_token}", str(user_id), ex=600)  # 10 min TTL
+
+                auth_url = f"{PUBLIC_DOMAIN}/api/google/auth?token={auth_token}"
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Подключить Google Calendar", url=auth_url)]
                 ])
