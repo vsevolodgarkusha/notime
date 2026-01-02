@@ -55,6 +55,31 @@ def is_valid_timezone(tz_str: str) -> bool:
     except Exception:
         return False
 
+async def get_user_timezone(user_id: int) -> str | None:
+    """Get user timezone from Redis, fallback to database if not cached."""
+    # Try Redis first
+    user_timezone = await redis_client.get(f"timezone:{user_id}")
+
+    # Fallback to database if not in Redis
+    if not user_timezone:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(
+                    f"{BACKEND_URL}/api/users/me",
+                    params={"telegram_id": user_id},
+                    headers=get_backend_headers()
+                )
+                if response.status_code == 200:
+                    user_data = response.json()
+                    if user_data.get("timezone"):
+                        user_timezone = user_data["timezone"]
+                        # Cache it in Redis for next time
+                        await redis_client.set(f"timezone:{user_id}", user_timezone)
+        except Exception as e:
+            logging.error(f"Error fetching user timezone from backend: {e}")
+
+    return user_timezone
+
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
     user_id = message.from_user.id
@@ -253,7 +278,7 @@ async def process_message(message: Message) -> None:
     if text.startswith("/"):
         return
 
-    user_timezone = await redis_client.get(f"timezone:{user_id}")
+    user_timezone = await get_user_timezone(user_id)
     if not user_timezone:
         await message.answer(
             "⚠️ Сначала установи часовой пояс!\n\n"
@@ -361,8 +386,8 @@ async def handle_voice(message: Message, bot: Bot):
         await redis_client.set(rate_limit_key, "1", ex=VOICE_RATE_LIMIT_SECONDS)
         
     await bot.send_chat_action(chat_id, "typing")
-    
-    user_timezone = await redis_client.get(f"timezone:{user_id}")
+
+    user_timezone = await get_user_timezone(user_id)
     if not user_timezone:
         await message.answer(
             "⚠️ Сначала установи часовой пояс!\n\n"

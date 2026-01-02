@@ -1,11 +1,9 @@
-version: '3.8'
-
 services:
   redis:
     image: "redis:alpine"
 
   postgres:
-    image: postgres:13
+    image: postgres:17
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -102,7 +100,7 @@ services:
       - frontend
 
   flower:
-    image: mher/flower:2.0.1
+    image: mher/flower:latest
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0

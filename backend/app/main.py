@@ -127,6 +127,29 @@ async def register_user(
     return {"message": "User created", "user_id": new_user.id}
 
 
+@app.get("/api/users/me")
+async def get_current_user(
+    auth: AuthResult = Depends(get_auth_flexible),
+    db: Session = Depends(get_db),
+):
+    """Get current user data including timezone.
+
+    Accepts either:
+    - Mini App: Authorization: tma <initData>
+    - Bot: Authorization: Bearer <INTERNAL_API_KEY> + telegram_id query param
+    """
+    user = db.query(models.User).filter(models.User.telegram_id == auth.telegram_id).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "telegram_id": user.telegram_id,
+        "timezone": user.timezone,
+        "google_calendar_connected": bool(user.google_calendar_token)
+    }
+
+
 @app.put("/api/users/timezone")
 async def set_user_timezone(
     update: TimezoneUpdate,
